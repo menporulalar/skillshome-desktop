@@ -22,4 +22,34 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.13.4", features = ["json", "form"] }
+tokio = { version = "1.52.3", features = ["full"] }
+tiny_http = "0.12.0"
+keyring = "4.1.3"
+keyring-core = "1.0.0"
+rand = "0.10.2"
+sha2 = "0.11.0"
+base64 = "0.22.1"
+url = "2.5.8"
+
+# keyring v4's own lazy default-store init (`keyring::Entry::new`) has a bug where the
+# one-time-init guard never fires, so it never calls `keyring_core::set_default_store`
+# (confirmed by inspecting keyring-4.1.3/src/v1.rs — the compare_exchange check can
+# never be true on first call). We call `set_default_store` ourselves in
+# `auth::token_store` instead, so we need direct access to the same per-platform store
+# crates keyring itself would otherwise wire up via its `v1` feature.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+apple-native-keyring-store = "1.0.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1.1.0"
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1.0.0", features = ["crypto-rust"] }
+
+[dev-dependencies]
+# Enables tauri::test::mock_app() for silent_refresh.rs's unit test — Cargo unions
+# features across [dependencies]/[dev-dependencies] for test builds only, so this
+# doesn't leak into release builds.
+tauri = { version = "2", features = ["test"] }
 
