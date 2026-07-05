@@ -1,0 +1,17 @@
+{
+  "name": "skillshome-desktop-sidecar",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal proof-of-concept for Module 4 task 4.3c: local profile extraction via @menporulalar/agents-core, run directly with node/ts-node. No Tauri/Rust wiring yet — that's tasks 4.9-4.11.",
+  "scripts": {
+    "extract:sample": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction.ts"
+  },
+  "dependencies": {
+    "@menporulalar/agents-core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}
