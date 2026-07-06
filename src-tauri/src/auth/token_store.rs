@@ -7,6 +7,7 @@ use std::sync::Once;
 
 const SERVICE: &str = "com.skillshome.desktop";
 const REFRESH_TOKEN_KEY: &str = "refresh_token";
+const BYOK_API_KEY_KEY: &str = "byok_api_key";
 
 static INIT_STORE: Once = Once::new();
 
@@ -30,9 +31,13 @@ fn ensure_default_store() {
     });
 }
 
-fn entry() -> Result<Entry, String> {
+fn entry_for(key: &str) -> Result<Entry, String> {
     ensure_default_store();
-    Entry::new(SERVICE, REFRESH_TOKEN_KEY).map_err(|e| e.to_string())
+    Entry::new(SERVICE, key).map_err(|e| e.to_string())
+}
+
+fn entry() -> Result<Entry, String> {
+    entry_for(REFRESH_TOKEN_KEY)
 }
 
 pub fn save_refresh_token(token: &str) -> Result<(), String> {
@@ -49,6 +54,28 @@ pub fn load_refresh_token() -> Result<Option<String>, String> {
 
 pub fn delete_refresh_token() -> Result<(), String> {
     match entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// BYOK_Frontier API key (Requirement 10.1) — same keychain, a different entry. Never
+/// transmitted anywhere; read back only by the Rust side (the connectivity check and,
+/// later, the Node sidecar's provider resolution) to call the provider directly.
+pub fn save_byok_api_key(key: &str) -> Result<(), String> {
+    entry_for(BYOK_API_KEY_KEY)?.set_password(key).map_err(|e| e.to_string())
+}
+
+pub fn load_byok_api_key() -> Result<Option<String>, String> {
+    match entry_for(BYOK_API_KEY_KEY)?.get_password() {
+        Ok(key) => Ok(Some(key)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub fn delete_byok_api_key() -> Result<(), String> {
+    match entry_for(BYOK_API_KEY_KEY)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
@@ -90,5 +117,31 @@ mod tests {
 
         delete_refresh_token().unwrap();
         assert!(delete_refresh_token().is_ok());
+    }
+
+    #[test]
+    fn save_load_delete_byok_round_trip() {
+        let _guard = KEYCHAIN_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        delete_byok_api_key().expect("pre-test cleanup should not fail");
+
+        assert_eq!(load_byok_api_key().unwrap(), None);
+
+        save_byok_api_key("sk-test-byok-key-value").unwrap();
+        assert_eq!(
+            load_byok_api_key().unwrap(),
+            Some("sk-test-byok-key-value".to_string())
+        );
+
+        delete_byok_api_key().unwrap();
+        assert_eq!(load_byok_api_key().unwrap(), None);
+    }
+
+    #[test]
+    fn delete_byok_when_absent_is_not_an_error() {
+        let _guard = KEYCHAIN_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        delete_byok_api_key().unwrap();
+        assert!(delete_byok_api_key().is_ok());
     }
 }
