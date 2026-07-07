@@ -9,7 +9,7 @@
     "test": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveExtractionConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/mcpClient.test.ts"
   },
   "dependencies": {
-    "@menporulalar/agents-core": "^0.2.0",
+    "@menporulalar/agents-core": "^0.2.1",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
