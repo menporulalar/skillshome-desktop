@@ -12,9 +12,12 @@
  *     this hits, via resolveExtractionConfig() reading the same
  *     extraction_settings.json file the Rust side writes.
  *
+ * `runLocalExtraction()` is also reused by run-local-extraction-and-stage.ts
+ * (task 4.11), which additionally syncs the result to the server over MCP.
+ *
  * Invoking this from the Rust shell via Tauri's sidecar mechanism (rather than
- * running it directly with node/ts-node, as this script still does) is tasks
- * 4.9-4.11's cross-repo counterpart — deliberately out of scope here.
+ * running it directly with node/ts-node, as this script still does) is task
+ * 4.12's job — deliberately out of scope here.
  *
  * Usage: npm run extract:sample -- <path-to-a-resume-file>
  *        (set BYOK_API_KEY=<key> first if Extraction_Source is byok_frontier)
@@ -28,6 +31,12 @@ import {
   ProjectParserAgent,
   CredentialsParserAgent,
   type IngestionInputType,
+  type ExtractedSkill,
+  type ExtractedExperience,
+  type ExtractedProject,
+  type ExtractedEducation,
+  type ExtractedCertificate,
+  type ExtractedAccolade,
 } from '@menporulalar/agents-core';
 import { resolveExtractionConfig } from './resolveExtractionConfig';
 
@@ -39,17 +48,23 @@ const EXTENSION_TO_INPUT_TYPE: Record<string, IngestionInputType> = {
   '.json': 'linkedin_json',
 };
 
-async function main() {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    console.error('Usage: npm run extract:sample -- <path-to-a-resume-file>');
-    process.exit(1);
-  }
+export interface LocalExtractionResult {
+  inputType: IngestionInputType;
+  skills: ExtractedSkill[];
+  experience: ExtractedExperience[];
+  projects: ExtractedProject[];
+  education: ExtractedEducation[];
+  certificates: ExtractedCertificate[];
+  accolades: ExtractedAccolade[];
+  summary: string;
+}
 
+export async function runLocalExtraction(filePath: string): Promise<LocalExtractionResult> {
   const inputType = EXTENSION_TO_INPUT_TYPE[extname(filePath).toLowerCase()];
   if (!inputType) {
-    console.error(`Unrecognized file extension for "${filePath}" — expected one of: ${Object.keys(EXTENSION_TO_INPUT_TYPE).join(', ')}`);
-    process.exit(1);
+    throw new Error(
+      `Unrecognized file extension for "${filePath}" — expected one of: ${Object.keys(EXTENSION_TO_INPUT_TYPE).join(', ')}`,
+    );
   }
 
   const fileBytes = readFileSync(filePath);
@@ -65,7 +80,8 @@ async function main() {
     new CredentialsParserAgent().run({ rawText, llmConfig }),
   ]);
 
-  console.log(JSON.stringify({
+  return {
+    inputType,
     skills: skillResult.skills,
     experience: experienceResult.experience,
     projects: projectResult.projects,
@@ -73,7 +89,18 @@ async function main() {
     certificates: credentialsResult.certificates,
     accolades: credentialsResult.accolades,
     summary: credentialsResult.summary,
-  }, null, 2));
+  };
+}
+
+async function main() {
+  const filePath = process.argv[2];
+  if (!filePath) {
+    console.error('Usage: npm run extract:sample -- <path-to-a-resume-file>');
+    process.exit(1);
+  }
+
+  const { inputType: _inputType, ...result } = await runLocalExtraction(filePath);
+  console.log(JSON.stringify(result, null, 2));
 }
 
 main().catch((err) => {

@@ -11,17 +11,17 @@
  * llmCaller.ts's expected provider strings directly — no translation needed.
  *
  * Deliberately does NOT spawn/receive anything from Rust — that's Tauri sidecar
- * process wiring (tasks 4.9-4.11's cross-repo counterpart, out of scope here per the
- * approved plan). `BYOK_API_KEY` as a plain env var here stands in for how a
- * Rust-spawned child process would pass it later: a child-process env var, never over
- * a network, satisfying Requirement 10.1 even in this pre-spawning form.
+ * process wiring (task 4.12's job, out of scope here per the approved plan).
+ * `BYOK_API_KEY` as a plain env var here stands in for how a Rust-spawned child
+ * process would pass it later: a child-process env var, never over a network,
+ * satisfying Requirement 10.1 even in this pre-spawning form.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import type { LLMCallConfig } from '@menporulalar/agents-core';
 
-type ExtractionSource = 'server_fallback' | 'local_model' | 'byok_frontier';
+export type ExtractionSource = 'server_fallback' | 'local_model' | 'byok_frontier';
 type ByokProvider = 'openai' | 'anthropic' | 'openrouter';
 
 interface ExtractionSettings {
@@ -48,6 +48,16 @@ export function appDataDir(): string {
     default:
       return join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), appId);
   }
+}
+
+/** Task 4.11: the MCP `profile.ingest.stage` tool call needs `extractionSource` as
+ *  its own field, alongside (not derived from) the `LLMCallConfig` above — a second
+ *  small synchronous file read, not worth threading through `resolveExtractionConfig`'s
+ *  existing (already-tested) return type/callers. */
+export function resolveActiveExtractionSource(root: string = appDataDir()): ExtractionSource {
+  const settingsPath = join(root, 'extraction_settings.json');
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as ExtractionSettings;
+  return settings.active_source;
 }
 
 export function resolveExtractionConfig(root: string = appDataDir()): LLMCallConfig {

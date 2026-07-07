@@ -9,7 +9,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveExtractionConfig } from '../resolveExtractionConfig';
+import { resolveExtractionConfig, resolveActiveExtractionSource } from '../resolveExtractionConfig';
 
 let failures = 0;
 function check(name: string, cond: boolean) {
@@ -89,6 +89,38 @@ function run() {
       threw = e instanceof Error && e.message.includes('no local pipeline should run');
     }
     check('throws — this source should never reach local extraction', threw);
+  }
+
+  console.log('\nresolveActiveExtractionSource (task 4.11)');
+  {
+    const localRoot = tempRoot('active-source-local');
+    writeSettings(localRoot, {
+      active_source: 'local_model',
+      local_model: { endpoint: 'http://127.0.0.1:11434', model: 'llama3.2:3b' },
+      byok_frontier: null,
+    });
+    check('reads local_model', resolveActiveExtractionSource(localRoot) === 'local_model');
+
+    const byokRoot = tempRoot('active-source-byok');
+    writeSettings(byokRoot, {
+      active_source: 'byok_frontier',
+      local_model: null,
+      byok_frontier: { provider: 'openai', model: 'gpt-4o-mini' },
+    });
+    check('reads byok_frontier', resolveActiveExtractionSource(byokRoot) === 'byok_frontier');
+
+    const fallbackRoot = tempRoot('active-source-fallback');
+    writeSettings(fallbackRoot, { active_source: 'server_fallback', local_model: null, byok_frontier: null });
+    check('reads server_fallback', resolveActiveExtractionSource(fallbackRoot) === 'server_fallback');
+
+    const missingRoot = tempRoot('active-source-missing-file');
+    let threw = false;
+    try {
+      resolveActiveExtractionSource(missingRoot);
+    } catch {
+      threw = true;
+    }
+    check('throws when the settings file is missing', threw);
   }
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);
