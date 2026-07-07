@@ -50,6 +50,38 @@ struct ErrorBody {
     error: String,
 }
 
+/// Minimal fields off a Prisma `Profile` row — `GET /api/profiles` returns the full
+/// row shape, but serde ignores the many fields this struct doesn't name.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ProfileSummary {
+    pub id: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+}
+
+/// Mirrors `GET /api/profiles/[id]/ingest/status`'s response body exactly.
+/// `review_package` is kept as an opaque `serde_json::Value` — this client never
+/// inspects `ReviewPackage`'s 6-variant nested shape, only transports it between
+/// this GET and the `confirm_ingest` POST. Real typing for it belongs in whatever
+/// TypeScript review UI eventually renders/edits it.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct IngestStatusResponse {
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+    /// Kept as a raw string, not an enum — avoids drift if the backend adds a
+    /// status value this client doesn't know about yet.
+    pub status: String,
+    pub progress: Option<u8>,
+    #[serde(rename = "reviewPackage")]
+    pub review_package: Option<serde_json::Value>,
+    #[serde(rename = "extractedSkills")]
+    pub extracted_skills: u32,
+    #[serde(rename = "errorMessage")]
+    pub error_message: Option<String>,
+    #[serde(rename = "statusLabel")]
+    pub status_label: String,
+}
+
 #[derive(Debug)]
 pub enum BackendError {
     /// User account exists but hasn't been approved yet (invite-only access gate).
@@ -57,6 +89,15 @@ pub enum BackendError {
     /// The refresh token itself is invalid, expired, or already rotated — distinct
     /// from `AccessPending`, which means a valid account is just not approved yet.
     Unauthorized,
+    /// The caller's daily ingestion budget is used up (429 from `POST .../ingest`).
+    IngestLimitReached(String),
+    /// A job is already in flight for this profile (409 from `POST .../ingest`) —
+    /// only one active ingestion job per profile at a time.
+    IngestInProgress(String),
+    /// No ingestion job exists yet for this profile (404 from
+    /// `GET .../ingest/status`) — an expected state when polling before
+    /// `start_ingest` has ever been called for this profile, not a real failure.
+    NoActiveJob,
     /// Any other non-2xx response, with the backend's `error` message when present.
     Rejected(String),
     /// Transport-level failure (no response at all).
@@ -68,6 +109,9 @@ impl std::fmt::Display for BackendError {
         match self {
             BackendError::AccessPending => write!(f, "account is pending approval"),
             BackendError::Unauthorized => write!(f, "refresh token is invalid or expired"),
+            BackendError::IngestLimitReached(msg) => write!(f, "{msg}"),
+            BackendError::IngestInProgress(msg) => write!(f, "{msg}"),
+            BackendError::NoActiveJob => write!(f, "no ingestion job found for this profile"),
             BackendError::Rejected(msg) => write!(f, "{msg}"),
             BackendError::Network(msg) => write!(f, "network error: {msg}"),
         }
@@ -165,6 +209,125 @@ impl BackendClient {
             });
             Err(BackendError::Rejected(body.error))
         }
+    }
+
+    /// Shared `Authorization: Bearer` request/response handling for the
+    /// server-fallback ingestion endpoints below — separate from `post_token`'s
+    /// unauthenticated branching (which has its own 403/access_pending special
+    /// case) since the two error-mapping tables genuinely differ.
+    async fn send_authenticated<T: serde::de::DeserializeOwned>(
+        &self,
+        req: reqwest::RequestBuilder,
+        access_token: &str,
+    ) -> Result<T, BackendError> {
+        let resp = req
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| BackendError::Network(e.to_string()))?;
+
+        if resp.status().is_success() {
+            return resp
+                .json::<T>()
+                .await
+                .map_err(|e| BackendError::Network(e.to_string()));
+        }
+
+        let status = resp.status();
+        let body: ErrorBody = resp.json().await.unwrap_or(ErrorBody {
+            error: format!("request failed with status {status}"),
+        });
+
+        Err(match status {
+            reqwest::StatusCode::UNAUTHORIZED => BackendError::Unauthorized,
+            reqwest::StatusCode::NOT_FOUND => BackendError::NoActiveJob,
+            reqwest::StatusCode::CONFLICT => BackendError::IngestInProgress(body.error),
+            reqwest::StatusCode::TOO_MANY_REQUESTS => BackendError::IngestLimitReached(body.error),
+            _ => BackendError::Rejected(body.error),
+        })
+    }
+
+    /// `GET /api/profiles` — used to resolve which profile the Server_Fallback
+    /// path should ingest into. Assumes at least one profile already exists from
+    /// prior web onboarding; creating a new one from the desktop app is out of scope.
+    pub async fn list_profiles(&self, access_token: &str) -> Result<Vec<ProfileSummary>, BackendError> {
+        let url = format!("{}/api/profiles", self.base_url);
+        self.send_authenticated(self.http.get(url), access_token).await
+    }
+
+    /// `POST /api/profiles/{id}/ingest` — multipart file upload. Returns the new
+    /// job's id. The backend hardcodes `autoConfirm: true` for every caller of this
+    /// route, so extracted items are already committed by the time the status
+    /// endpoint reports `awaiting_review` — see `confirm_ingest`'s doc comment.
+    pub async fn start_ingest(
+        &self,
+        access_token: &str,
+        profile_id: &str,
+        file_bytes: Vec<u8>,
+        filename: &str,
+        mime: &str,
+    ) -> Result<String, BackendError> {
+        let url = format!("{}/api/profiles/{}/ingest", self.base_url, profile_id);
+        let part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(filename.to_string())
+            .mime_str(mime)
+            .map_err(|e| BackendError::Network(e.to_string()))?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+
+        #[derive(Deserialize)]
+        struct StartIngestResponse {
+            #[serde(rename = "jobId")]
+            job_id: String,
+        }
+
+        let resp: StartIngestResponse = self
+            .send_authenticated(self.http.post(url).multipart(form), access_token)
+            .await?;
+        Ok(resp.job_id)
+    }
+
+    /// `GET /api/profiles/{id}/ingest/status` — one active job per profile, no job
+    /// id in the path. `BackendError::NoActiveJob` (404) is an expected state, not
+    /// a real failure — callers should treat it as "still pending," not surface it.
+    pub async fn get_ingest_status(
+        &self,
+        access_token: &str,
+        profile_id: &str,
+    ) -> Result<IngestStatusResponse, BackendError> {
+        let url = format!("{}/api/profiles/{}/ingest/status", self.base_url, profile_id);
+        self.send_authenticated(self.http.get(url), access_token).await
+    }
+
+    /// `POST /api/profiles/{id}/ingest/confirm` — despite the name, this isn't a
+    /// first-persistence gate for this route (see `start_ingest`'s doc comment):
+    /// its real job is applying the user's review edits/rejections on top of data
+    /// that's already committed. `review_package` is passed through as an opaque
+    /// JSON value — this client never inspects its shape.
+    ///
+    /// Known latent limitation (not fixed here): the backend's
+    /// `ProfileService.commitReviewPackage` returns HTTP 400 if the review package
+    /// has zero accepted items. Whatever UI calls this should avoid sending an
+    /// all-rejected package.
+    pub async fn confirm_ingest(
+        &self,
+        access_token: &str,
+        profile_id: &str,
+        review_package: serde_json::Value,
+    ) -> Result<(), BackendError> {
+        #[derive(Serialize)]
+        struct ConfirmBody {
+            #[serde(rename = "confirmedItems")]
+            confirmed_items: serde_json::Value,
+        }
+
+        let url = format!("{}/api/profiles/{}/ingest/confirm", self.base_url, profile_id);
+        let _: serde_json::Value = self
+            .send_authenticated(
+                self.http.post(url).json(&ConfirmBody { confirmed_items: review_package }),
+                access_token,
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -315,6 +478,165 @@ mod tests {
 
         let err = client
             .refresh_access_token("some-token")
+            .await
+            .expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn list_profiles_success() {
+        let base = stub_server(200, r#"[{"id":"p-1","displayName":"Jane Doe"}]"#);
+        let client = BackendClient::with_base_url(base);
+
+        let profiles = client.list_profiles("token").await.expect("should succeed");
+
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].id, "p-1");
+        assert_eq!(profiles[0].display_name, "Jane Doe");
+    }
+
+    #[tokio::test]
+    async fn list_profiles_401_maps_to_unauthorized() {
+        let base = stub_server(401, r#"{"error":"Unauthorized"}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client.list_profiles("token").await.expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Unauthorized));
+    }
+
+    #[tokio::test]
+    async fn list_profiles_network_failure_is_reported() {
+        let client = BackendClient::with_base_url("http://127.0.0.1:1");
+
+        let err = client.list_profiles("token").await.expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn start_ingest_success() {
+        let base = stub_server(202, r#"{"jobId":"job-1","status":"pending"}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let job_id = client
+            .start_ingest("token", "profile-1", b"fake resume bytes".to_vec(), "resume.pdf", "application/pdf")
+            .await
+            .expect("should succeed");
+
+        assert_eq!(job_id, "job-1");
+    }
+
+    #[tokio::test]
+    async fn start_ingest_429_maps_to_ingest_limit_reached() {
+        let base = stub_server(429, r#"{"error":"Daily ingestion limit reached (3/day for free tier)."}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client
+            .start_ingest("token", "profile-1", b"bytes".to_vec(), "resume.pdf", "application/pdf")
+            .await
+            .expect_err("should fail");
+
+        match err {
+            BackendError::IngestLimitReached(msg) => assert_eq!(msg, "Daily ingestion limit reached (3/day for free tier)."),
+            other => panic!("expected IngestLimitReached, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_ingest_409_maps_to_ingest_in_progress() {
+        let base = stub_server(409, r#"{"error":"An ingestion job is already in progress for this profile. Please wait for it to complete."}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client
+            .start_ingest("token", "profile-1", b"bytes".to_vec(), "resume.pdf", "application/pdf")
+            .await
+            .expect_err("should fail");
+
+        assert!(matches!(err, BackendError::IngestInProgress(_)));
+    }
+
+    #[tokio::test]
+    async fn start_ingest_network_failure_is_reported() {
+        let client = BackendClient::with_base_url("http://127.0.0.1:1");
+
+        let err = client
+            .start_ingest("token", "profile-1", b"bytes".to_vec(), "resume.pdf", "application/pdf")
+            .await
+            .expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn get_ingest_status_success() {
+        let base = stub_server(
+            200,
+            r#"{"jobId":"job-1","status":"awaiting_review","progress":100,"reviewPackage":{"skills":[]},"extractedSkills":0,"errorMessage":null,"statusLabel":"Ready for your review"}"#,
+        );
+        let client = BackendClient::with_base_url(base);
+
+        let status = client.get_ingest_status("token", "profile-1").await.expect("should succeed");
+
+        assert_eq!(status.job_id, "job-1");
+        assert_eq!(status.status, "awaiting_review");
+        assert_eq!(status.progress, Some(100));
+        assert!(status.review_package.is_some());
+    }
+
+    #[tokio::test]
+    async fn get_ingest_status_404_maps_to_no_active_job() {
+        let base = stub_server(404, r#"{"error":"No ingestion job found"}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client.get_ingest_status("token", "profile-1").await.expect_err("should fail");
+
+        assert!(matches!(err, BackendError::NoActiveJob));
+    }
+
+    #[tokio::test]
+    async fn get_ingest_status_network_failure_is_reported() {
+        let client = BackendClient::with_base_url("http://127.0.0.1:1");
+
+        let err = client.get_ingest_status("token", "profile-1").await.expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn confirm_ingest_success() {
+        let base = stub_server(200, r#"{"committed":true}"#);
+        let client = BackendClient::with_base_url(base);
+
+        client
+            .confirm_ingest("token", "profile-1", serde_json::json!({"skills": []}))
+            .await
+            .expect("should succeed");
+    }
+
+    #[tokio::test]
+    async fn confirm_ingest_400_zero_accepted_items_is_rejected() {
+        let base = stub_server(400, r#"{"error":"At least one item must be accepted."}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client
+            .confirm_ingest("token", "profile-1", serde_json::json!({"skills": []}))
+            .await
+            .expect_err("should fail");
+
+        match err {
+            BackendError::Rejected(msg) => assert_eq!(msg, "At least one item must be accepted."),
+            other => panic!("expected Rejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn confirm_ingest_network_failure_is_reported() {
+        let client = BackendClient::with_base_url("http://127.0.0.1:1");
+
+        let err = client
+            .confirm_ingest("token", "profile-1", serde_json::json!({}))
             .await
             .expect_err("should fail");
 

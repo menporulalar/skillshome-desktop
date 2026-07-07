@@ -1,6 +1,10 @@
 import { useSignin } from "./useSignin";
 
-export function SigninScreen() {
+interface Props {
+  onOpenSettings: () => void;
+}
+
+export function SigninScreen({ onOpenSettings }: Props) {
   const { status, accessToken, signInWithGoogle, signInWithGithub, signOut } = useSignin();
 
   if (accessToken && status.state === "Success") {
@@ -8,9 +12,14 @@ export function SigninScreen() {
       <main className="container">
         <h1>Signed in</h1>
         <p>SkillsHome Desktop is connected.</p>
-        <button type="button" onClick={signOut}>
-          Sign out
-        </button>
+        <div className="row" style={{ gap: "0.5em" }}>
+          <button type="button" onClick={onOpenSettings}>
+            Extraction Settings
+          </button>
+          <button type="button" onClick={signOut}>
+            Sign out
+          </button>
+        </div>
       </main>
     );
   }
