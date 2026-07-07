@@ -1,21 +1,23 @@
 /**
- * run-local-extraction.ts — Module 4 task 4.3c minimal proof.
+ * run-local-extraction.ts — Module 4 tasks 4.3c + 4.9.
  *
- * Proves two things end to end, with no Tauri/Rust involvement at all:
+ * Proves, with no Tauri/Rust process-spawning involved:
  *  1. @menporulalar/agents-core installs from GitHub Packages into this
  *     separate repo and its agent classes run correctly outside skillshome-app.
  *  2. The resulting shape (skills/experience/projects/credentials arrays)
  *     matches what ReviewPackageAssemblerAgent expects as candidate input on
  *     the server side (Requirement 3.6).
+ *  3. (4.9) The real Extraction_Source setting — configured and activated via the
+ *     desktop app's settings screen (4.4-4.8) — actually drives which provider
+ *     this hits, via resolveExtractionConfig() reading the same
+ *     extraction_settings.json file the Rust side writes.
  *
- * The real Extraction_Source-driven config (Local_Model / BYOK_Frontier
- * settings UI, connectivity self-check) is tasks 4.4-4.9, not this one — the
- * llmConfig below is a hardcoded stand-in pointed at a local Ollama.
- * Likewise, invoking this from the Rust shell via Tauri's sidecar mechanism
- * is tasks 4.9-4.11 — this only proves the Node-side logic works when run
- * directly with node/ts-node.
+ * Invoking this from the Rust shell via Tauri's sidecar mechanism (rather than
+ * running it directly with node/ts-node, as this script still does) is tasks
+ * 4.9-4.11's cross-repo counterpart — deliberately out of scope here.
  *
  * Usage: npm run extract:sample -- <path-to-a-resume-file>
+ *        (set BYOK_API_KEY=<key> first if Extraction_Source is byok_frontier)
  */
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
@@ -25,9 +27,9 @@ import {
   ExperienceParserAgent,
   ProjectParserAgent,
   CredentialsParserAgent,
-  type LLMCallConfig,
   type IngestionInputType,
 } from '@menporulalar/agents-core';
+import { resolveExtractionConfig } from './resolveExtractionConfig';
 
 const EXTENSION_TO_INPUT_TYPE: Record<string, IngestionInputType> = {
   '.pdf': 'resume_pdf',
@@ -51,15 +53,7 @@ async function main() {
   }
 
   const fileBytes = readFileSync(filePath);
-
-  // Hardcoded stand-in for the real Extraction_Source-driven resolution
-  // (tasks 4.4-4.9) — points at a local Ollama, same default the docker-compose
-  // dev stack uses.
-  const llmConfig: LLMCallConfig = {
-    provider: 'ollama',
-    model: process.env.OLLAMA_MODEL ?? 'llama3.2:3b',
-    maxTokens: 4096,
-  };
+  const llmConfig = resolveExtractionConfig();
 
   const textExtractor = new TextExtractorAgent();
   const { rawText } = await textExtractor.run({ inputType, fileBytes });
