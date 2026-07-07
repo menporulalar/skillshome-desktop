@@ -1,6 +1,8 @@
 mod auth;
 mod extraction;
+mod ingest;
 
+use auth::backend_client::{BackendClient, IngestStatusResponse, ProfileSummary};
 use auth::state::{SigninState, SigninStatus};
 use auth::token_store;
 use extraction::check;
@@ -183,6 +185,72 @@ fn delete_byok_config(
     Ok(())
 }
 
+// ── Server_Fallback ingestion path (Module 4 task 4.10) ────────────────────────
+// Deliberately no screen/component here — this is plumbing only. Task 4.12 owns
+// the actual source-picker/progress/review UI built on top of these commands.
+
+fn require_access_token(state: &tauri::State<'_, SigninState>) -> Result<String, String> {
+    state.access_token().ok_or_else(|| "not signed in".to_string())
+}
+
+#[tauri::command]
+async fn pick_resume_file() -> Result<Option<String>, String> {
+    let file = rfd::AsyncFileDialog::new()
+        .add_filter("Resume", &["pdf", "docx", "doc", "txt", "md", "json", "zip"])
+        .pick_file()
+        .await;
+    Ok(file.map(|f| f.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+async fn list_my_profiles(state: tauri::State<'_, SigninState>) -> Result<Vec<ProfileSummary>, String> {
+    let token = require_access_token(&state)?;
+    BackendClient::new()
+        .list_profiles(&token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn start_server_fallback_ingest(
+    state: tauri::State<'_, SigninState>,
+    profile_id: String,
+    file_path: String,
+) -> Result<String, String> {
+    let token = require_access_token(&state)?;
+    let (bytes, filename, mime) = ingest::read_file_for_ingest(&file_path)?;
+    BackendClient::new()
+        .start_ingest(&token, &profile_id, bytes, &filename, mime)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_server_fallback_ingest_status(
+    state: tauri::State<'_, SigninState>,
+    profile_id: String,
+) -> Result<Option<IngestStatusResponse>, String> {
+    let token = require_access_token(&state)?;
+    match BackendClient::new().get_ingest_status(&token, &profile_id).await {
+        Ok(status) => Ok(Some(status)),
+        Err(auth::backend_client::BackendError::NoActiveJob) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+async fn confirm_server_fallback_ingest(
+    state: tauri::State<'_, SigninState>,
+    profile_id: String,
+    review_package: serde_json::Value,
+) -> Result<(), String> {
+    let token = require_access_token(&state)?;
+    BackendClient::new()
+        .confirm_ingest(&token, &profile_id, review_package)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -211,7 +279,12 @@ pub fn run() {
             test_byok_connection,
             activate_extraction_source,
             delete_local_model_config,
-            delete_byok_config
+            delete_byok_config,
+            pick_resume_file,
+            list_my_profiles,
+            start_server_fallback_ingest,
+            get_server_fallback_ingest_status,
+            confirm_server_fallback_ingest
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
