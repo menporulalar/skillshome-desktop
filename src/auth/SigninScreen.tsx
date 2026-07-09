@@ -1,29 +1,15 @@
-import { useSignin } from "./useSignin";
+import type { SigninStatus } from "./useSignin";
 
+// Signed-out view only (task 4.12) — App.tsx owns useSignin() as a single source
+// of truth shared across screens and renders HomeScreen.tsx once signed in,
+// instead of this component branching on signed-in/signed-out itself.
 interface Props {
-  onOpenSettings: () => void;
+  status: SigninStatus;
+  signInWithGoogle: () => void;
+  signInWithGithub: () => void;
 }
 
-export function SigninScreen({ onOpenSettings }: Props) {
-  const { status, accessToken, signInWithGoogle, signInWithGithub, signOut } = useSignin();
-
-  if (accessToken && status.state === "Success") {
-    return (
-      <main className="container">
-        <h1>Signed in</h1>
-        <p>SkillsHome Desktop is connected.</p>
-        <div className="row" style={{ gap: "0.5em" }}>
-          <button type="button" onClick={onOpenSettings}>
-            Extraction Settings
-          </button>
-          <button type="button" onClick={signOut}>
-            Sign out
-          </button>
-        </div>
-      </main>
-    );
-  }
-
+export function SigninScreen({ status, signInWithGoogle, signInWithGithub }: Props) {
   return (
     <main className="container">
       <h1>Sign in to SkillsHome</h1>

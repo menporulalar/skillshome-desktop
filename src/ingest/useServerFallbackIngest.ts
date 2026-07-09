@@ -7,6 +7,10 @@ export interface ProfileSummary {
   display_name: string;
 }
 
+// Server_Fallback accepts either a picked file or a GitHub/doc URL — mirrors the
+// REST route's two request branches (multipart file vs JSON `{url}` body).
+export type IngestSource = { kind: "file"; path: string } | { kind: "url"; url: string };
+
 export interface IngestStatusResponse {
   job_id: string;
   // Kept as a raw string, not a union — avoids drift if the backend adds a status
@@ -80,13 +84,17 @@ export function useServerFallbackIngest() {
   );
 
   const startIngest = useCallback(
-    async (profileId: string, filePath: string) => {
+    async (profileId: string, source: IngestSource) => {
       setBusy(true);
       setErrorMessage(null);
       setStatus(null);
       stopPolling();
       try {
-        await invoke("start_server_fallback_ingest", { profileId, filePath });
+        if (source.kind === "url") {
+          await invoke("start_server_fallback_ingest_url", { profileId, url: source.url });
+        } else {
+          await invoke("start_server_fallback_ingest", { profileId, filePath: source.path });
+        }
         await pollStatus(profileId);
         pollHandle.current = setInterval(() => pollStatus(profileId), POLL_INTERVAL_MS);
       } catch (err) {
