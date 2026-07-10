@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ExtractionSource } from "../extraction/useExtractionSettings";
 import type { useServerFallbackIngest, IngestSource } from "./useServerFallbackIngest";
 import type { useLocalExtraction } from "./useLocalExtraction";
+import { mapDesktopError } from "../errors/mapDesktopError";
 
 // Owns the actual "start the job" side effect for both paths (kicked off once on
 // mount) — SourcePickerScreen only captures profileId/source, it doesn't touch
@@ -83,8 +84,9 @@ export function ExtractionProgressScreen({
     activeSource === "server_fallback" && serverFallback.status?.status === "failed"
       ? serverFallback.status.error_message ?? "Extraction failed"
       : null;
-  const errorMessage =
+  const rawErrorMessage =
     (activeSource === "server_fallback" ? serverFallback.errorMessage : localExtraction.errorMessage) ?? jobFailedMessage;
+  const errorMessage = rawErrorMessage ? mapDesktopError(rawErrorMessage) : null;
 
   if (errorMessage) {
     return (

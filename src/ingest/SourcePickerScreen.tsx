@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ExtractionSource } from "../extraction/useExtractionSettings";
 import type { ProfileSummary, IngestStatusResponse, IngestSource } from "./useServerFallbackIngest";
+import { mapDesktopError } from "../errors/mapDesktopError";
 
 // "Source picker" here means WHAT data to extract from (file / LinkedIn export /
 // GitHub URL) — a different axis from Extraction_Source (WHERE extraction runs,
@@ -90,7 +91,7 @@ export function SourcePickerScreen({ pickFile, listProfiles, activeSource, onBac
     <main className="container">
       <h1>Start Extraction</h1>
 
-      {loadError && <p style={{ color: "red" }}>{loadError}</p>}
+      {loadError && <p style={{ color: "red" }}>{mapDesktopError(loadError)}</p>}
 
       {profiles && profiles.length === 0 && (
         <p>No profiles yet — create one on the SkillsHome web app first.</p>
