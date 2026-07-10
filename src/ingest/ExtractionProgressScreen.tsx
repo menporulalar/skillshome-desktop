@@ -20,6 +20,11 @@ interface Props {
   // onReviewReady, which is for a genuine reviewable package.
   onComplete: () => void;
   onRetry: () => void;
+  // Task 4.13, Requirement 3.9: offered only for Local_Model/BYOK_Frontier, only
+  // after the retry budget (useLocalExtraction's own outer retry loop) is fully
+  // exhausted — retries the *same* profileId/source through Server_Fallback
+  // instead of sending the user back to re-pick.
+  onRetryViaServerFallback: () => void;
 }
 
 export function ExtractionProgressScreen({
@@ -31,6 +36,7 @@ export function ExtractionProgressScreen({
   onReviewReady,
   onComplete,
   onRetry,
+  onRetryViaServerFallback,
 }: Props) {
   const started = useRef(false);
 
@@ -46,9 +52,9 @@ export function ExtractionProgressScreen({
     // Local_Model/BYOK_Frontier: file-only (URL input is gated to server_fallback
     // in SourcePickerScreen, since neither path has a local GitHub-scanning
     // agent) — a single blocking spawn (task 4.12, dev-mode only) with no
-    // incremental progress signal — the spinner below is intentionally
-    // indeterminate, not a percentage bar. Staging always yields a real
-    // review_package here (no server-side auto-confirm on this path).
+    // incremental progress signal beyond the retry-attempt counter below.
+    // Staging always yields a real review_package here (no server-side
+    // auto-confirm on this path).
     if (source.kind !== "file") return;
     localExtraction
       .startAndStage(profileId, source.path)
@@ -85,9 +91,16 @@ export function ExtractionProgressScreen({
       <main className="container">
         <h1>Extraction failed</h1>
         <p style={{ color: "red" }}>{errorMessage}</p>
-        <button type="button" onClick={onRetry}>
-          Try Again
-        </button>
+        <div className="row" style={{ gap: "0.5em" }}>
+          <button type="button" onClick={onRetry}>
+            Try Again
+          </button>
+          {activeSource !== "server_fallback" && (
+            <button type="button" onClick={onRetryViaServerFallback}>
+              Retry via Server_Fallback
+            </button>
+          )}
+        </div>
       </main>
     );
   }
@@ -100,6 +113,11 @@ export function ExtractionProgressScreen({
           {serverFallback.status.status_label}
           {serverFallback.status.progress != null ? ` (${serverFallback.status.progress}%)` : ""}
         </p>
+      ) : activeSource !== "server_fallback" && localExtraction.attempt > 1 ? (
+        // Requirement 7.3: a clear offline/retry state — the user sees retries
+        // happening (useLocalExtraction's outer retry loop) rather than a silent
+        // hang. No visible flash on the common case (first attempt succeeds).
+        <p>Retrying (attempt {localExtraction.attempt} of {localExtraction.maxAttempts})…</p>
       ) : (
         <p>Running extraction locally — this can take a minute…</p>
       )}

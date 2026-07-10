@@ -103,7 +103,17 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Task 4.13 bug fix: without this guard, `main()` ran unconditionally at module
+// load — including when run-local-extraction-and-stage.ts merely *imports*
+// `runLocalExtraction` from this file. That made two independent `main()` calls
+// race on the same process.argv and both call `process.exit()`, which could kill
+// the process before the real script (the importer) finished printing its own
+// __SIDECAR_RESULT__ marker line — surfacing as a spurious "sidecar produced no
+// result line" error in the UI, found via live retry testing (repeated spawns
+// made the race far more likely to lose).
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
