@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ExtractionSource } from "../extraction/useExtractionSettings";
 import type { useServerFallbackIngest } from "./useServerFallbackIngest";
 import type { useLocalExtraction } from "./useLocalExtraction";
+import { mapDesktopError } from "../errors/mapDesktopError";
 
 interface ReviewItem {
   id: string;
@@ -54,7 +55,8 @@ export function ReviewConfirmScreen({ activeSource, profileId, reviewPackage, se
   const allItems = SECTIONS.flatMap((section) => (pkg[section] as ReviewItem[] | undefined) ?? []);
   const acceptedCount = allItems.filter((item) => item.status === "accepted").length;
   const busy = activeSource === "server_fallback" ? serverFallback.busy : localExtraction.busy;
-  const errorMessage = activeSource === "server_fallback" ? serverFallback.errorMessage : localExtraction.errorMessage;
+  const rawErrorMessage = activeSource === "server_fallback" ? serverFallback.errorMessage : localExtraction.errorMessage;
+  const errorMessage = rawErrorMessage ? mapDesktopError(rawErrorMessage) : null;
 
   const handleConfirm = async () => {
     try {
