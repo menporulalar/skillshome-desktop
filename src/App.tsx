@@ -33,6 +33,13 @@ function App() {
 
   const [screen, setScreen] = useState<Screen>("home");
   const [flow, setFlow] = useState<ExtractionFlow | null>(null);
+  // Task 4.13, Requirement 3.9: set when the user clicks "Retry via
+  // Server_Fallback" after the Local_Model/BYOK_Frontier retry budget is
+  // exhausted — overrides the *effective* source for this one flow only,
+  // without touching the persisted Extraction_Source setting. Reset whenever a
+  // fresh flow starts from the picker so it doesn't leak into an unrelated
+  // extraction.
+  const [forceServerFallback, setForceServerFallback] = useState(false);
 
   const isSignedIn = signin.accessToken !== null && signin.status.state === "Success";
 
@@ -58,10 +65,12 @@ function App() {
         activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
         onBack={() => setScreen("home")}
         onStart={(profileId, source) => {
+          setForceServerFallback(false);
           setFlow({ profileId, source });
           setScreen("progress");
         }}
         onReviewReady={(profileId, reviewPackage) => {
+          setForceServerFallback(false);
           setFlow({ profileId, source: { kind: "file", path: "" }, reviewPackage });
           setScreen("review");
         }}
@@ -69,10 +78,17 @@ function App() {
     );
   }
 
+  const effectiveSource = forceServerFallback ? "server_fallback" : (extractionSettings.settings?.active_source ?? "server_fallback");
+
   if (screen === "progress" && flow) {
     return (
       <ExtractionProgressScreen
-        activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
+        // Forces a genuine remount when the fallback offer is taken — resets the
+        // component's internal "started" ref so it actually kicks off a fresh
+        // attempt through the new path, rather than being a no-op on an
+        // already-mounted instance.
+        key={forceServerFallback ? "fallback" : "primary"}
+        activeSource={effectiveSource}
         profileId={flow.profileId}
         source={flow.source}
         serverFallback={serverFallback}
@@ -86,6 +102,7 @@ function App() {
           setScreen("home");
         }}
         onRetry={() => setScreen("picker")}
+        onRetryViaServerFallback={() => setForceServerFallback(true)}
       />
     );
   }
@@ -93,7 +110,7 @@ function App() {
   if (screen === "review" && flow?.reviewPackage) {
     return (
       <ReviewConfirmScreen
-        activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
+        activeSource={effectiveSource}
         profileId={flow.profileId}
         reviewPackage={flow.reviewPackage}
         serverFallback={serverFallback}
