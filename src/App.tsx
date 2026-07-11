@@ -1,20 +1,118 @@
 import { useState } from "react";
+import { useSignin } from "./auth/useSignin";
 import { SigninScreen } from "./auth/SigninScreen";
+import { HomeScreen } from "./auth/HomeScreen";
 import { ExtractionSettingsScreen } from "./extraction/ExtractionSettingsScreen";
+import { useExtractionSettings } from "./extraction/useExtractionSettings";
+import { useServerFallbackIngest, type IngestSource } from "./ingest/useServerFallbackIngest";
+import { useLocalExtraction } from "./ingest/useLocalExtraction";
+import { SourcePickerScreen } from "./ingest/SourcePickerScreen";
+import { ExtractionProgressScreen } from "./ingest/ExtractionProgressScreen";
+import { ReviewConfirmScreen } from "./ingest/ReviewConfirmScreen";
 import "./App.css";
 
-// No router — this is a 2-3 screen app today. Plain local state is enough; revisit
-// if task 4.12's remaining screens make this feel cramped.
-type Screen = "signin" | "settings";
+// "signin" isn't a stored state — it's purely a function of isSignedIn below, so
+// it can't go stale (e.g. after sign-out) the way a stored screen value could.
+type Screen = "home" | "settings" | "picker" | "progress" | "review";
+
+// Carries just enough across the picker → progress → review hand-off; the actual
+// polling/async state lives in the two hooks below (lifted here so it survives
+// screen transitions — a hook called fresh inside each screen would lose its
+// in-flight polling interval the moment that screen unmounts).
+interface ExtractionFlow {
+  profileId: string;
+  source: IngestSource;
+  reviewPackage?: unknown;
+}
 
 function App() {
-  const [screen, setScreen] = useState<Screen>("signin");
+  const signin = useSignin();
+  const extractionSettings = useExtractionSettings();
+  const serverFallback = useServerFallbackIngest();
+  const localExtraction = useLocalExtraction();
 
-  if (screen === "settings") {
-    return <ExtractionSettingsScreen onBack={() => setScreen("signin")} />;
+  const [screen, setScreen] = useState<Screen>("home");
+  const [flow, setFlow] = useState<ExtractionFlow | null>(null);
+
+  const isSignedIn = signin.accessToken !== null && signin.status.state === "Success";
+
+  if (!isSignedIn) {
+    return (
+      <SigninScreen
+        status={signin.status}
+        signInWithGoogle={signin.signInWithGoogle}
+        signInWithGithub={signin.signInWithGithub}
+      />
+    );
   }
 
-  return <SigninScreen onOpenSettings={() => setScreen("settings")} />;
+  if (screen === "settings") {
+    return <ExtractionSettingsScreen onBack={() => setScreen("home")} />;
+  }
+
+  if (screen === "picker") {
+    return (
+      <SourcePickerScreen
+        pickFile={serverFallback.pickFile}
+        listProfiles={serverFallback.listProfiles}
+        activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
+        onBack={() => setScreen("home")}
+        onStart={(profileId, source) => {
+          setFlow({ profileId, source });
+          setScreen("progress");
+        }}
+        onReviewReady={(profileId, reviewPackage) => {
+          setFlow({ profileId, source: { kind: "file", path: "" }, reviewPackage });
+          setScreen("review");
+        }}
+      />
+    );
+  }
+
+  if (screen === "progress" && flow) {
+    return (
+      <ExtractionProgressScreen
+        activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
+        profileId={flow.profileId}
+        source={flow.source}
+        serverFallback={serverFallback}
+        localExtraction={localExtraction}
+        onReviewReady={(reviewPackage) => {
+          setFlow({ ...flow, reviewPackage });
+          setScreen("review");
+        }}
+        onComplete={() => {
+          setFlow(null);
+          setScreen("home");
+        }}
+        onRetry={() => setScreen("picker")}
+      />
+    );
+  }
+
+  if (screen === "review" && flow?.reviewPackage) {
+    return (
+      <ReviewConfirmScreen
+        activeSource={extractionSettings.settings?.active_source ?? "server_fallback"}
+        profileId={flow.profileId}
+        reviewPackage={flow.reviewPackage}
+        serverFallback={serverFallback}
+        localExtraction={localExtraction}
+        onConfirmed={() => {
+          setFlow(null);
+          setScreen("home");
+        }}
+      />
+    );
+  }
+
+  return (
+    <HomeScreen
+      onStartExtraction={() => setScreen("picker")}
+      onOpenSettings={() => setScreen("settings")}
+      signOut={signin.signOut}
+    />
+  );
 }
 
 export default App;

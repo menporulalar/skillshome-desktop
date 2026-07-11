@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 /// Baked in at compile time. `option_env!` (not `env!`) so a dev build compiles even
 /// before the two new OAuth app registrations exist — a real release pipeline should
 /// supply these, but an unset var must not block local iteration.
-fn default_backend_url() -> &'static str {
+///
+/// `pub(crate)` — task 4.12's sidecar-spawning commands (`lib.rs`) also need this
+/// same value to tell the sidecar which backend to talk to over MCP, and should
+/// stay in sync with the REST client's own default rather than re-deriving it.
+pub(crate) fn default_backend_url() -> &'static str {
     option_env!("SKILLSHOME_BACKEND_URL").unwrap_or("http://localhost:3000")
 }
 
@@ -282,6 +286,35 @@ impl BackendClient {
 
         let resp: StartIngestResponse = self
             .send_authenticated(self.http.post(url).multipart(form), access_token)
+            .await?;
+        Ok(resp.job_id)
+    }
+
+    /// `POST /api/profiles/{id}/ingest` — URL-only ingestion (GitHub repo/doc link),
+    /// the JSON-body sibling of `start_ingest`'s multipart upload. The REST route
+    /// dispatches on `Content-Type`, not on the presence of a file, so this must send
+    /// a plain JSON `{url}` body rather than a multipart form with a `url` field.
+    pub async fn start_ingest_url(
+        &self,
+        access_token: &str,
+        profile_id: &str,
+        url: &str,
+    ) -> Result<String, BackendError> {
+        let endpoint = format!("{}/api/profiles/{}/ingest", self.base_url, profile_id);
+
+        #[derive(Serialize)]
+        struct UrlIngestBody<'a> {
+            url: &'a str,
+        }
+
+        #[derive(Deserialize)]
+        struct StartIngestResponse {
+            #[serde(rename = "jobId")]
+            job_id: String,
+        }
+
+        let resp: StartIngestResponse = self
+            .send_authenticated(self.http.post(endpoint).json(&UrlIngestBody { url }), access_token)
             .await?;
         Ok(resp.job_id)
     }
@@ -563,6 +596,60 @@ mod tests {
 
         let err = client
             .start_ingest("token", "profile-1", b"bytes".to_vec(), "resume.pdf", "application/pdf")
+            .await
+            .expect_err("should fail");
+
+        assert!(matches!(err, BackendError::Network(_)));
+    }
+
+    #[tokio::test]
+    async fn start_ingest_url_success() {
+        let base = stub_server(202, r#"{"jobId":"job-2","status":"pending"}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let job_id = client
+            .start_ingest_url("token", "profile-1", "https://github.com/octocat/hello-world")
+            .await
+            .expect("should succeed");
+
+        assert_eq!(job_id, "job-2");
+    }
+
+    #[tokio::test]
+    async fn start_ingest_url_429_maps_to_ingest_limit_reached() {
+        let base = stub_server(429, r#"{"error":"Daily ingestion limit reached (3/day for free tier)."}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client
+            .start_ingest_url("token", "profile-1", "https://github.com/octocat/hello-world")
+            .await
+            .expect_err("should fail");
+
+        match err {
+            BackendError::IngestLimitReached(msg) => assert_eq!(msg, "Daily ingestion limit reached (3/day for free tier)."),
+            other => panic!("expected IngestLimitReached, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_ingest_url_409_maps_to_ingest_in_progress() {
+        let base = stub_server(409, r#"{"error":"An ingestion job is already in progress for this profile. Please wait for it to complete."}"#);
+        let client = BackendClient::with_base_url(base);
+
+        let err = client
+            .start_ingest_url("token", "profile-1", "https://github.com/octocat/hello-world")
+            .await
+            .expect_err("should fail");
+
+        assert!(matches!(err, BackendError::IngestInProgress(_)));
+    }
+
+    #[tokio::test]
+    async fn start_ingest_url_network_failure_is_reported() {
+        let client = BackendClient::with_base_url("http://127.0.0.1:1");
+
+        let err = client
+            .start_ingest_url("token", "profile-1", "https://github.com/octocat/hello-world")
             .await
             .expect_err("should fail");
 

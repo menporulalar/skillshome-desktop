@@ -2,10 +2,12 @@
   "name": "skillshome-desktop-sidecar",
   "private": true,
   "version": "0.0.0",
-  "description": "Local profile extraction via @menporulalar/agents-core, run directly with node/ts-node. Reads the desktop app's real Extraction_Source setting (task 4.9) and, for Local_Model/BYOK_Frontier sources, stages/confirms the result over the real MCP server via the official SDK client (task 4.11). No Tauri/Rust process-spawning wiring yet — that's task 4.12's job.",
+  "description": "Local profile extraction via @menporulalar/agents-core, run directly with node/ts-node. Reads the desktop app's real Extraction_Source setting (task 4.9) and, for Local_Model/BYOK_Frontier sources, stages/confirms the result over the real MCP server via the official SDK client (task 4.11). `stage`/`confirm` are the stable script names Rust spawns directly (task 4.12); `extract:sample*` remain for manual CLI use.",
   "scripts": {
     "extract:sample": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction.ts",
     "extract:sample:stage": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction-and-stage.ts",
+    "stage": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction-and-stage.ts",
+    "confirm": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/confirm-staged-ingestion.ts",
     "test": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveExtractionConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/mcpClient.test.ts"
   },
   "dependencies": {

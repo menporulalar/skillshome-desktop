@@ -1,51 +1,51 @@
 /**
- * run-local-extraction-and-stage.ts — Module 4 task 4.11.
+ * run-local-extraction-and-stage.ts — Module 4 tasks 4.11 + 4.12.
  *
- * Proves the MCP_Client path end to end: run the same local extraction agents
- * run-local-extraction.ts already proves work (task 4.3c/4.9), then sync the
- * result to the server over the real MCP transport (skillshome-app's
- * `app/api/mcp/route.ts`) via `profile.ingest.stage`, instead of a raw file
- * upload — this is the Local_Model/BYOK_Frontier counterpart to task 4.10's
- * Server_Fallback REST path.
+ * Runs the local extraction agents (task 4.3c/4.9), then syncs the result to the
+ * server over the real MCP transport (skillshome-app's `app/api/mcp/route.ts`) via
+ * `profile.ingest.stage`, instead of a raw file upload — the Local_Model/
+ * BYOK_Frontier counterpart to task 4.10's Server_Fallback REST path.
  *
- * Defaults to stage-and-print-only. `profile.ingest.confirm` is NOT called
- * unless `--confirm` is passed explicitly — auto-accepting and confirming by
- * default would mutate a real profile on whatever server this points at, which
- * is more than this wiring-proof script should risk doing silently.
+ * Stage-only — never calls `profile.ingest.confirm`. That's a fully separate step
+ * now (`confirm-staged-ingestion.ts`), since task 4.12 added a real review screen
+ * that sits between staging and confirming; a single script that could silently
+ * auto-accept-and-commit no longer fits once a user is expected to review first.
  *
- * No Tauri/Rust process-spawning wiring here — that's task 4.12's job. The
- * access token is read from an env var as a stand-in for how a Rust-spawned
- * child process would pass it later (same justification already used for
- * task 4.9's BYOK_API_KEY): a child-process env var, never over a network.
+ * Invoked two ways:
+ *  - Manually, for CLI testing (`npm run stage -- <file> <profile-id>`), reading
+ *    plain console output.
+ *  - By Rust (task 4.12, `src-tauri/src/ingest/sidecar.rs`), which spawns this via
+ *    `npm run stage --` and greps stdout for the `__SIDECAR_RESULT__:` marker line
+ *    below — everything else on stdout (including `@menporulalar/agents-core`'s own
+ *    logger, which writes info-level JSON lines to stdout) is informational only.
+ *    All of THIS script's own progress messages go to stderr for exactly that
+ *    reason — only the final marker line belongs on stdout.
  *
- * Usage: npm run extract:sample:stage -- <path-to-a-resume-file> <profile-id> [--confirm]
+ * The access token is read from an env var as a stand-in for how the real
+ * Rust-spawned child process passes it (same justification already used for task
+ * 4.9's BYOK_API_KEY): a child-process env var, never over a network.
+ *
+ * Usage: npm run stage -- <path-to-a-resume-file> <profile-id>
  *        SKILLSHOME_ACCESS_TOKEN=<token> must be set.
  *        SKILLSHOME_BACKEND_URL defaults to http://localhost:3000.
  *        (set BYOK_API_KEY=<key> first if Extraction_Source is byok_frontier)
  */
 import { runLocalExtraction } from './run-local-extraction';
 import { resolveActiveExtractionSource } from './resolveExtractionConfig';
-import { connectMcpClient, stageIngestion, confirmIngestion } from './mcpClient';
+import { connectMcpClient, stageIngestion } from './mcpClient';
 
-// Local, minimal shape — not exported from @menporulalar/agents-core (that package
-// only owns extraction-agent output types, not the server's review/confirm
-// workflow types). Only the fields this script's force-accept helper touches.
-interface ReviewPackageItem {
-  status: string;
-  [key: string]: unknown;
-}
+const RESULT_MARKER = '__SIDECAR_RESULT__:';
 
-function acceptAll(items: ReviewPackageItem[]): ReviewPackageItem[] {
-  return items.map((item) => ({ ...item, status: 'accepted' }));
+function printResult(result: Record<string, unknown>) {
+  console.log(`${RESULT_MARKER}${JSON.stringify(result)}`);
 }
 
 async function main() {
   const filePath = process.argv[2];
   const profileId = process.argv[3];
-  const shouldConfirm = process.argv.includes('--confirm');
 
   if (!filePath || !profileId) {
-    console.error('Usage: npm run extract:sample:stage -- <path-to-a-resume-file> <profile-id> [--confirm]');
+    console.error('Usage: npm run stage -- <path-to-a-resume-file> <profile-id>');
     process.exit(1);
   }
 
@@ -62,13 +62,13 @@ async function main() {
     process.exit(1);
   }
 
-  console.log('Running local extraction...');
+  console.error('Running local extraction...');
   const { inputType, ...extractionResult } = await runLocalExtraction(filePath);
 
-  console.log(`Connecting to MCP server at ${backendUrl}...`);
-  const client = await connectMcpClient(backendUrl, accessToken as string);
+  console.error(`Connecting to MCP server at ${backendUrl}...`);
+  const client = await connectMcpClient(backendUrl, accessToken);
 
-  console.log('Staging extraction result via profile.ingest.stage...');
+  console.error('Staging extraction result via profile.ingest.stage...');
   const { jobId, reviewPackage } = await stageIngestion(client, {
     profileId,
     inputType,
@@ -76,40 +76,16 @@ async function main() {
     ...extractionResult,
   });
 
-  console.log(`Staged as job ${jobId}. Review package:`);
-  console.log(JSON.stringify(reviewPackage, null, 2));
-
-  if (!shouldConfirm) {
-    console.log('\nStage-only run (pass --confirm to also commit this to the profile).');
-    return;
-  }
-
-  console.log('\n--confirm passed — accepting all items and confirming...');
-  const rp = reviewPackage as {
-    jobId: string;
-    profileId: string;
-    skills: ReviewPackageItem[];
-    projects: ReviewPackageItem[];
-    experience: ReviewPackageItem[];
-    education?: ReviewPackageItem[];
-    certificates?: ReviewPackageItem[];
-    accolades?: ReviewPackageItem[];
-  };
-  const confirmedItems = {
-    ...rp,
-    skills: acceptAll(rp.skills),
-    projects: acceptAll(rp.projects),
-    experience: acceptAll(rp.experience),
-    education: acceptAll(rp.education ?? []),
-    certificates: acceptAll(rp.certificates ?? []),
-    accolades: acceptAll(rp.accolades ?? []),
-  };
-
-  const result = await confirmIngestion(client, profileId, confirmedItems);
-  console.log('Confirm result:', JSON.stringify(result, null, 2));
+  console.error(`Staged as job ${jobId}.`);
+  printResult({ ok: true, jobId, reviewPackage });
+  // Defensive, matching confirm-staged-ingestion.ts's fix: guarantees termination
+  // even if something (the MCP client's HTTP connection, etc.) would otherwise keep
+  // Node's event loop alive past the point where the actual work is done.
+  process.exit(0);
 }
 
 main().catch((err) => {
   console.error(err);
+  printResult({ ok: false, error: err instanceof Error ? err.message : String(err) });
   process.exit(1);
 });

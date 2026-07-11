@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+pub mod sidecar;
+
 /// Mirrors `ALLOWED_MIMES` in skillshome-app's
 /// `app/api/profiles/[id]/ingest/route.ts` exactly — the backend rejects anything
 /// not in that table, so a mismatch here would surface as a confusing "unsupported

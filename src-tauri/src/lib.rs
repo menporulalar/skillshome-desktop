@@ -226,6 +226,19 @@ async fn start_server_fallback_ingest(
 }
 
 #[tauri::command]
+async fn start_server_fallback_ingest_url(
+    state: tauri::State<'_, SigninState>,
+    profile_id: String,
+    url: String,
+) -> Result<String, String> {
+    let token = require_access_token(&state)?;
+    BackendClient::new()
+        .start_ingest_url(&token, &profile_id, &url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_server_fallback_ingest_status(
     state: tauri::State<'_, SigninState>,
     profile_id: String,
@@ -249,6 +262,63 @@ async fn confirm_server_fallback_ingest(
         .confirm_ingest(&token, &profile_id, review_package)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ── Local_Model/BYOK_Frontier extraction path (Module 4 task 4.12) ─────────────
+// The first real Rust→sidecar process spawn — dev-mode only, see ingest::sidecar's
+// module doc comment. `Server_Fallback` above never touches the sidecar at all.
+
+/// BYOK_Frontier's key never leaves this process except as a child's env var — same
+/// rule as the access token, never sent over a network by this command itself.
+fn byok_env_pair(settings_state: &tauri::State<'_, ExtractionSettingsState>) -> Result<Vec<(String, String)>, String> {
+    if settings_state.get().active_source != ExtractionSource::ByokFrontier {
+        return Ok(Vec::new());
+    }
+    let api_key = token_store::load_byok_api_key()?
+        .ok_or_else(|| "No BYOK_Frontier API key found in the keychain".to_string())?;
+    Ok(vec![("BYOK_API_KEY".to_string(), api_key)])
+}
+
+#[tauri::command]
+async fn start_local_extraction_and_stage(
+    state: tauri::State<'_, SigninState>,
+    settings_state: tauri::State<'_, ExtractionSettingsState>,
+    profile_id: String,
+    file_path: String,
+) -> Result<serde_json::Value, String> {
+    let token = require_access_token(&state)?;
+    let extra_env = byok_env_pair(&settings_state)?;
+    let extra_env_refs: Vec<(&str, &str)> = extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+
+    ingest::sidecar::run_sidecar_command(
+        "stage",
+        &[&file_path, &profile_id],
+        &token,
+        auth::backend_client::default_backend_url(),
+        None,
+        &extra_env_refs,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn confirm_local_extraction(
+    state: tauri::State<'_, SigninState>,
+    profile_id: String,
+    confirmed_items: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let token = require_access_token(&state)?;
+    let payload = serde_json::to_string(&confirmed_items).map_err(|e| e.to_string())?;
+
+    ingest::sidecar::run_sidecar_command(
+        "confirm",
+        &[&profile_id],
+        &token,
+        auth::backend_client::default_backend_url(),
+        Some(&payload),
+        &[],
+    )
+    .await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -283,8 +353,11 @@ pub fn run() {
             pick_resume_file,
             list_my_profiles,
             start_server_fallback_ingest,
+            start_server_fallback_ingest_url,
             get_server_fallback_ingest_status,
-            confirm_server_fallback_ingest
+            confirm_server_fallback_ingest,
+            start_local_extraction_and_stage,
+            confirm_local_extraction
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
