@@ -1,0 +1,6 @@
+[submodule "brand"]
+	path = brand
+	url = git@github.com:menporulalar/skillshome-brand.git
+[submodule "specs"]
+	path = specs
+	url = git@github.com:menporulalar/skillshome-specs.git
