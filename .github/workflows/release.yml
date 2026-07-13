@@ -66,6 +66,17 @@ jobs:
           # unset here, v0.1.0 silently compiled with the http://localhost:3000 fallback, so
           # sign-in appeared to work through the browser step then failed reaching the backend.
           SKILLSHOME_BACKEND_URL: https://app.skillshome.me
+          # Desktop-type Google OAuth client (separate registration from skillshome-app's web
+          # client — see src-tauri/src/auth/google.rs). Also never set in v0.1.0/v0.1.1, so
+          # "Sign in with Google" showed "GOOGLE_DESKTOP_CLIENT_ID is not configured for this
+          # build" instead of opening the browser consent screen. Not a secret — this is a
+          # public OAuth client_id, safe as a plain workflow value (unlike CLIENT_SECRET, which
+          # only skillshome-app's server needs, never this binary).
+          GOOGLE_DESKTOP_CLIENT_ID: 615658998656-l3rmtbvpstu8q0nfrujitihe0v6ugk4d.apps.googleusercontent.com
+          # Separate GitHub OAuth App (Device Flow enabled, no callback URL needed — device
+          # flow polls github.com/login/device directly). Same "never wired into release.yml"
+          # gap as the two vars above; also not a secret, no client_secret needed for this flow.
+          GITHUB_DEVICE_CLIENT_ID: Ov23liHl2gkZau28nsAu
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'SkillsHome Desktop ${{ github.ref_name }}'
@@ -78,6 +89,12 @@ jobs:
             - **macOS**: Gatekeeper will say the app "cannot be opened because it is
               from an unidentified developer." Right-click (or Control-click) the app
               → **Open** → **Open** again in the confirmation dialog.
+              - **If instead you see "is damaged and can't be opened"** — that's a
+                different Gatekeeper message (common on newer macOS / Apple Silicon)
+                and the right-click trick above won't help. Run this in Terminal, then
+                launch normally: `xattr -cr /Applications/SkillsHome\ Desktop.app`
+                (adjust the path if it's not in `/Applications` yet). The app isn't
+                actually damaged — this just clears the quarantine flag.
             - **Windows**: SmartScreen will show "Windows protected your PC." Click
               **More info** → **Run anyway**.
 

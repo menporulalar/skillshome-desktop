@@ -33,6 +33,15 @@ first launch — this is expected, not a sign of a bad download:
 - **macOS**: Gatekeeper says the app "cannot be opened because it is from an unidentified
   developer." Right-click (or Control-click) the app → **Open** → **Open** again in the
   confirmation dialog. (You only need to do this once.)
+  - **If instead you see "\[App\] is damaged and can't be opened. You should move it to the
+    Bin"** — this is a *different* Gatekeeper message (common for unsigned apps on newer
+    macOS, especially Apple Silicon) and the right-click workaround above won't fix it. Run
+    this in Terminal instead, then launch the app normally:
+    ```
+    xattr -cr /Applications/SkillsHome\ Desktop.app
+    ```
+    (adjust the path if the app isn't in `/Applications` yet.) The app isn't actually
+    damaged — this clears the quarantine flag macOS attaches to unsigned downloads.
 - **Windows**: SmartScreen shows "Windows protected your PC." Click **More info** → **Run
   anyway**.
 
