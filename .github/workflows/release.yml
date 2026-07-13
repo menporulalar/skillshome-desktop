@@ -62,6 +62,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Baked in at compile time via Rust's option_env! (src-tauri/src/auth/backend_client.rs) —
+          # unset here, v0.1.0 silently compiled with the http://localhost:3000 fallback, so
+          # sign-in appeared to work through the browser step then failed reaching the backend.
+          SKILLSHOME_BACKEND_URL: https://app.skillshome.me
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'SkillsHome Desktop ${{ github.ref_name }}'

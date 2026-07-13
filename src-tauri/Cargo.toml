@@ -1,6 +1,6 @@
 [package]
 name = "skillshome-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "SkillsHome Desktop — local Profile Extraction Agent + MCP client"
 authors = ["SkillsHome"]
 edition = "2021"
