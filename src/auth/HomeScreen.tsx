@@ -3,10 +3,11 @@
 interface Props {
   onStartExtraction: () => void;
   onOpenSettings: () => void;
+  onOpenProjects: () => void;
   signOut: () => void;
 }
 
-export function HomeScreen({ onStartExtraction, onOpenSettings, signOut }: Props) {
+export function HomeScreen({ onStartExtraction, onOpenSettings, onOpenProjects, signOut }: Props) {
   return (
     <main className="container">
       <h1>Signed in</h1>
@@ -14,6 +15,9 @@ export function HomeScreen({ onStartExtraction, onOpenSettings, signOut }: Props
       <div className="row" style={{ gap: "0.5em" }}>
         <button type="button" onClick={onStartExtraction}>
           Start Extraction
+        </button>
+        <button type="button" onClick={onOpenProjects}>
+          Connected Projects
         </button>
         <button type="button" onClick={onOpenSettings}>
           Extraction Settings
