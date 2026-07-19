@@ -1,6 +1,7 @@
 mod auth;
 mod extraction;
 mod ingest;
+mod projectsync;
 
 use auth::backend_client::{BackendClient, IngestStatusResponse, ProfileSummary};
 use auth::state::{SigninState, SigninStatus};
@@ -93,7 +94,16 @@ fn save_byok_config(
     model: String,
     api_key: String,
 ) -> Result<(), String> {
-    token_store::save_byok_api_key(&api_key)?;
+    // An empty key means "keep whatever's already in the keychain" — the frontend
+    // never reads the stored key back into its form, so a revisit-and-edit of just
+    // the provider/model arrives here with a blank key field.
+    if api_key.is_empty() {
+        if token_store::load_byok_api_key()?.is_none() {
+            return Err("An API key is required — none is stored in the keychain yet".to_string());
+        }
+    } else {
+        token_store::save_byok_api_key(&api_key)?;
+    }
 
     let mut updated = state.get();
     updated.byok_frontier = Some(ByokFrontierConfig {
@@ -113,7 +123,15 @@ async fn test_local_model_connection(endpoint: String, model: String) -> Result<
 
 #[tauri::command]
 async fn test_byok_connection(provider: ByokProvider, api_key: String, model: String) -> Result<(), String> {
-    check::run_byok_check(provider, &api_key, &model).await
+    // Same blank-field convention as `save_byok_config`: an empty key means "test
+    // with the key already in the keychain".
+    let key = if api_key.is_empty() {
+        token_store::load_byok_api_key()?
+            .ok_or_else(|| "No API key entered and none stored in the keychain yet".to_string())?
+    } else {
+        api_key
+    };
+    check::run_byok_check(provider, &key, &model).await
 }
 
 #[tauri::command]
@@ -334,6 +352,10 @@ pub fn run() {
             let loaded = extraction::settings::load(&root)?;
             app.state::<ExtractionSettingsState>().set(loaded);
 
+            // #25 Module 3 desktop half — Local_Project_Grant store lives
+            // under the same app data root as the extraction settings.
+            app.manage(projectsync::grants::GrantsState::new(root));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -357,7 +379,13 @@ pub fn run() {
             get_server_fallback_ingest_status,
             confirm_server_fallback_ingest,
             start_local_extraction_and_stage,
-            confirm_local_extraction
+            confirm_local_extraction,
+            projectsync::pick_project_folder,
+            projectsync::list_connected_projects,
+            projectsync::connect_local_project,
+            projectsync::remove_connected_project,
+            projectsync::run_project_sync,
+            projectsync::list_stale_project_grants
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
