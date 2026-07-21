@@ -56,10 +56,14 @@ struct ErrorBody {
 
 /// Minimal fields off a Prisma `Profile` row — `GET /api/profiles` returns the full
 /// row shape, but serde ignores the many fields this struct doesn't name.
+///
+/// Renames are deserialize-only: the backend speaks camelCase, but this struct is
+/// re-serialized to the frontend, whose TypeScript mirrors expect snake_case field
+/// names. A plain `rename` would leak camelCase to the frontend too.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ProfileSummary {
     pub id: String,
-    #[serde(rename = "displayName")]
+    #[serde(rename(deserialize = "displayName"))]
     pub display_name: String,
 }
 
@@ -68,21 +72,23 @@ pub struct ProfileSummary {
 /// inspects `ReviewPackage`'s 6-variant nested shape, only transports it between
 /// this GET and the `confirm_ingest` POST. Real typing for it belongs in whatever
 /// TypeScript review UI eventually renders/edits it.
+/// Renames are deserialize-only for the same reason as `ProfileSummary`'s: camelCase
+/// in from the backend, snake_case out to the frontend's TypeScript mirror.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct IngestStatusResponse {
-    #[serde(rename = "jobId")]
+    #[serde(rename(deserialize = "jobId"))]
     pub job_id: String,
     /// Kept as a raw string, not an enum — avoids drift if the backend adds a
     /// status value this client doesn't know about yet.
     pub status: String,
     pub progress: Option<u8>,
-    #[serde(rename = "reviewPackage")]
+    #[serde(rename(deserialize = "reviewPackage"))]
     pub review_package: Option<serde_json::Value>,
-    #[serde(rename = "extractedSkills")]
+    #[serde(rename(deserialize = "extractedSkills"))]
     pub extracted_skills: u32,
-    #[serde(rename = "errorMessage")]
+    #[serde(rename(deserialize = "errorMessage"))]
     pub error_message: Option<String>,
-    #[serde(rename = "statusLabel")]
+    #[serde(rename(deserialize = "statusLabel"))]
     pub status_label: String,
 }
 
@@ -527,6 +533,52 @@ mod tests {
         assert_eq!(profiles.len(), 1);
         assert_eq!(profiles[0].id, "p-1");
         assert_eq!(profiles[0].display_name, "Jane Doe");
+    }
+
+    /// Locks in the deserialize-only renames: the frontend's TypeScript mirrors
+    /// (`useServerFallbackIngest.ts`) read snake_case fields, so re-serializing to
+    /// the webview must emit `display_name`, not the backend's `displayName`.
+    /// Regression guard for the blank-profile-dropdown bug.
+    #[test]
+    fn profile_summary_serializes_snake_case_for_the_frontend() {
+        let profile = ProfileSummary {
+            id: "p-1".to_string(),
+            display_name: "Jane Doe".to_string(),
+        };
+
+        let value = serde_json::to_value(&profile).unwrap();
+
+        assert_eq!(value, serde_json::json!({"id": "p-1", "display_name": "Jane Doe"}));
+    }
+
+    /// Same guard for the status payload — `status_label`/`review_package` etc. must
+    /// reach the frontend in snake_case or the progress/review UI silently breaks.
+    #[test]
+    fn ingest_status_serializes_snake_case_for_the_frontend() {
+        let status = IngestStatusResponse {
+            job_id: "job-1".to_string(),
+            status: "processing".to_string(),
+            progress: Some(40),
+            review_package: None,
+            extracted_skills: 3,
+            error_message: None,
+            status_label: "Extracting skills".to_string(),
+        };
+
+        let value = serde_json::to_value(&status).unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "job_id": "job-1",
+                "status": "processing",
+                "progress": 40,
+                "review_package": null,
+                "extracted_skills": 3,
+                "error_message": null,
+                "status_label": "Extracting skills",
+            })
+        );
     }
 
     #[tokio::test]
