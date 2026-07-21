@@ -53,14 +53,48 @@ export function ExtractionSettingsScreen({ onBack }: Props) {
   const endpointHost = hostOf(endpoint);
   const needsOptIn = endpointHost !== null && !isLoopbackHost(endpointHost) && !nonLoopbackOptIn;
 
+  // A saved BYOK config implies a key in the OS keychain (save_byok_config writes
+  // both together), so a blank key field doesn't mean "no key" — the backend treats
+  // blank as "keep/use the stored key".
+  const hasStoredByokKey = Boolean(settings?.byok_frontier);
+
   const testAndSaveLocalModel = async () => {
-    await saveLocalModel(endpoint, localModelName, nonLoopbackOptIn);
+    try {
+      await saveLocalModel(endpoint, localModelName, nonLoopbackOptIn);
+    } catch {
+      return; // the hook already surfaced the save error
+    }
     await testLocalModel(endpoint, localModelName);
   };
 
   const testAndSaveByok = async () => {
-    await saveByok(provider, byokModelName, apiKey);
+    try {
+      await saveByok(provider, byokModelName, apiKey);
+    } catch {
+      return;
+    }
     await testByok(provider, apiKey, byokModelName);
+  };
+
+  // "Activate this source" must persist the form first — activating only a
+  // previously-saved config silently discards whatever the user just typed
+  // (the original "my key and settings weren't persisted" bug).
+  const saveAndActivateLocalModel = async () => {
+    try {
+      await saveLocalModel(endpoint, localModelName, nonLoopbackOptIn);
+      await activate("local_model");
+    } catch {
+      // save/activate errors already land in testResult
+    }
+  };
+
+  const saveAndActivateByok = async () => {
+    try {
+      await saveByok(provider, byokModelName, apiKey);
+      await activate("byok_frontier");
+    } catch {
+      // save/activate errors already land in testResult
+    }
   };
 
   return (
@@ -136,7 +170,7 @@ export function ExtractionSettingsScreen({ onBack }: Props) {
             <button type="button" onClick={testAndSaveLocalModel} disabled={busy || needsOptIn}>
               {busy ? "Testing…" : "Test Connection"}
             </button>
-            <button type="button" onClick={() => activate("local_model")} disabled={busy}>
+            <button type="button" onClick={saveAndActivateLocalModel} disabled={busy || needsOptIn}>
               Activate this source
             </button>
             {settings?.local_model && (
@@ -179,12 +213,17 @@ export function ExtractionSettingsScreen({ onBack }: Props) {
           <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
             Stored only in your OS keychain — never sent to SkillsHome's servers.
           </p>
+          {hasStoredByokKey && !apiKey && (
+            <p style={{ fontSize: "0.85em", opacity: 0.8 }}>
+              A key is already saved in your keychain — leave this field blank to keep using it.
+            </p>
+          )}
 
           <div className="row" style={{ gap: "0.5em", marginTop: "1em" }}>
-            <button type="button" onClick={testAndSaveByok} disabled={busy || !apiKey}>
+            <button type="button" onClick={testAndSaveByok} disabled={busy || (!apiKey && !hasStoredByokKey)}>
               {busy ? "Testing…" : "Test Connection"}
             </button>
-            <button type="button" onClick={() => activate("byok_frontier")} disabled={busy}>
+            <button type="button" onClick={saveAndActivateByok} disabled={busy || (!apiKey && !hasStoredByokKey)}>
               Activate this source
             </button>
             {settings?.byok_frontier && (

@@ -46,7 +46,14 @@ export function useExtractionSettings() {
 
   const saveLocalModel = useCallback(
     async (endpoint: string, model: string, nonLoopbackOptIn: boolean) => {
-      await invoke("save_local_model_config", { endpoint, model, nonLoopbackOptIn });
+      try {
+        await invoke("save_local_model_config", { endpoint, model, nonLoopbackOptIn });
+      } catch (err) {
+        // Surface save failures the same way test/activate failures show up —
+        // a swallowed rejection here looks like "my settings weren't persisted".
+        setTestResult({ ok: false, message: String(err) });
+        throw err;
+      }
       setTestResult(null);
       await refresh();
     },
@@ -55,7 +62,12 @@ export function useExtractionSettings() {
 
   const saveByok = useCallback(
     async (provider: ByokProvider, model: string, apiKey: string) => {
-      await invoke("save_byok_config", { provider, model, apiKey });
+      try {
+        await invoke("save_byok_config", { provider, model, apiKey });
+      } catch (err) {
+        setTestResult({ ok: false, message: String(err) });
+        throw err;
+      }
       setTestResult(null);
       await refresh();
     },
