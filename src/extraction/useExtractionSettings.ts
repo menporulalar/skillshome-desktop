@@ -24,6 +24,9 @@ export interface ExtractionSettings {
   active_source: ExtractionSource;
   local_model: LocalModelConfig | null;
   byok_frontier: ByokFrontierConfig | null;
+  /** ai-interview-agent Module 4 (Requirement 5.1) — a separate active-source
+   * choice for Mock_Interview, reusing `local_model`/`byok_frontier` above. */
+  active_interview_source: ExtractionSource;
 }
 
 export interface TestResult {
@@ -115,6 +118,23 @@ export function useExtractionSettings() {
     [refresh],
   );
 
+  const activateInterviewSource = useCallback(
+    async (source: ExtractionSource) => {
+      setBusy(true);
+      try {
+        await invoke("activate_interview_source", { source });
+        setTestResult(null);
+        await refresh();
+      } catch (err) {
+        setTestResult({ ok: false, message: String(err) });
+        throw err;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
   const deleteLocalModel = useCallback(async () => {
     await invoke("delete_local_model_config");
     await refresh();
@@ -134,6 +154,7 @@ export function useExtractionSettings() {
     testLocalModel,
     testByok,
     activate,
+    activateInterviewSource,
     deleteLocalModel,
     deleteByok,
   };

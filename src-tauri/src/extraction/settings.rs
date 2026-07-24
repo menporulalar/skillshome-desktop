@@ -55,6 +55,17 @@ pub struct ExtractionSettings {
     pub active_source: ExtractionSource,
     pub local_model: Option<LocalModelConfig>,
     pub byok_frontier: Option<ByokFrontierConfig>,
+    /// ai-interview-agent Module 4 (Requirement 5.1): a SEPARATE active-source
+    /// choice for Mock_Interview, independent of `active_source` above — a
+    /// candidate may want extraction on Local_Model but interviews on
+    /// Server_Fallback, or vice versa. Deliberately reuses `local_model`/
+    /// `byok_frontier` above rather than a second config+keychain entry: the
+    /// point of "reusing Native_Token_Store... verbatim" (task 4.1) is that
+    /// there is exactly one stored endpoint/model/API-key per source type,
+    /// not two. `#[serde(default)]` so existing settings files on disk (from
+    /// before this field existed) still deserialize.
+    #[serde(default)]
+    pub active_interview_source: ExtractionSource,
 }
 
 const SETTINGS_FILE_NAME: &str = "extraction_settings.json";
@@ -137,6 +148,7 @@ mod tests {
                 connectivity_check_passed: true,
             }),
             byok_frontier: None,
+            active_interview_source: ExtractionSource::ServerFallback,
         };
 
         save(&root, &settings).unwrap();
@@ -156,12 +168,33 @@ mod tests {
                 model: "claude-3-7-sonnet-latest".to_string(),
                 connectivity_check_passed: false,
             }),
+            active_interview_source: ExtractionSource::LocalModel,
         };
 
         save(&root, &settings).unwrap();
         let raw = std::fs::read_to_string(settings_path(&root)).unwrap();
         assert!(!raw.contains("api_key"), "settings file must never contain an api_key field");
         assert_eq!(load(&root).unwrap(), settings);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A settings file written before `active_interview_source` existed must still
+    /// load — `#[serde(default)]` makes the field default to `ServerFallback`
+    /// (its own `#[default]` variant) rather than failing deserialization.
+    #[test]
+    fn pre_existing_settings_file_without_interview_source_field_still_loads() {
+        let root = temp_root("pre-existing-no-interview-field");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            settings_path(&root),
+            r#"{"active_source":"local_model","local_model":{"endpoint":"http://127.0.0.1:11434","model":"llama3.2:3b","non_loopback_opt_in":false,"connectivity_check_passed":true},"byok_frontier":null}"#,
+        )
+        .unwrap();
+
+        let loaded = load(&root).unwrap();
+        assert_eq!(loaded.active_interview_source, ExtractionSource::ServerFallback);
+        assert_eq!(loaded.active_source, ExtractionSource::LocalModel);
 
         let _ = std::fs::remove_dir_all(&root);
     }
