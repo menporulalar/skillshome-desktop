@@ -171,6 +171,48 @@ async fn activate_extraction_source(
     Ok(())
 }
 
+// ── Interview_Source (ai-interview-agent Module 4, Requirement 5.1/5.2) ────────
+// A separate active-source choice from Extraction_Source's `active_source`
+// above, but reusing the exact same `local_model`/`byok_frontier` config +
+// `Native_Token_Store` (keychain) entries — see `ExtractionSettings::
+// active_interview_source`'s doc comment for why there's no second config form.
+
+#[tauri::command]
+async fn activate_interview_source(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ExtractionSettingsState>,
+    source: ExtractionSource,
+) -> Result<(), String> {
+    let mut updated = state.get();
+
+    match source {
+        ExtractionSource::ServerFallback => {}
+        ExtractionSource::LocalModel => {
+            let cfg = updated
+                .local_model
+                .clone()
+                .ok_or_else(|| "No Local_Model configuration saved yet".to_string())?;
+            // Always re-validate — never trust a prior connectivity_check_passed flag,
+            // and never trust Extraction_Source's check having passed in the past either.
+            check::run_local_model_check(&cfg.endpoint, &cfg.model).await?;
+        }
+        ExtractionSource::ByokFrontier => {
+            let cfg = updated
+                .byok_frontier
+                .clone()
+                .ok_or_else(|| "No BYOK_Frontier configuration saved yet".to_string())?;
+            let api_key = token_store::load_byok_api_key()?
+                .ok_or_else(|| "No BYOK_Frontier API key found in the keychain".to_string())?;
+            check::run_byok_check(cfg.provider, &api_key, &cfg.model).await?;
+        }
+    }
+
+    updated.active_interview_source = source;
+    extraction::settings::save(&app_data_root(&app)?, &updated)?;
+    state.set(updated);
+    Ok(())
+}
+
 #[tauri::command]
 fn delete_local_model_config(
     app: tauri::AppHandle,
@@ -180,6 +222,9 @@ fn delete_local_model_config(
     updated.local_model = None;
     if updated.active_source == ExtractionSource::LocalModel {
         updated.active_source = ExtractionSource::ServerFallback;
+    }
+    if updated.active_interview_source == ExtractionSource::LocalModel {
+        updated.active_interview_source = ExtractionSource::ServerFallback;
     }
     extraction::settings::save(&app_data_root(&app)?, &updated)?;
     state.set(updated);
@@ -197,6 +242,9 @@ fn delete_byok_config(
     updated.byok_frontier = None;
     if updated.active_source == ExtractionSource::ByokFrontier {
         updated.active_source = ExtractionSource::ServerFallback;
+    }
+    if updated.active_interview_source == ExtractionSource::ByokFrontier {
+        updated.active_interview_source = ExtractionSource::ServerFallback;
     }
     extraction::settings::save(&app_data_root(&app)?, &updated)?;
     state.set(updated);
@@ -370,6 +418,7 @@ pub fn run() {
             test_local_model_connection,
             test_byok_connection,
             activate_extraction_source,
+            activate_interview_source,
             delete_local_model_config,
             delete_byok_config,
             pick_resume_file,

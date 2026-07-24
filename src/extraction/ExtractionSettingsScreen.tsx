@@ -23,8 +23,19 @@ interface Props {
 }
 
 export function ExtractionSettingsScreen({ onBack }: Props) {
-  const { settings, testResult, busy, saveLocalModel, saveByok, testLocalModel, testByok, activate, deleteLocalModel, deleteByok } =
-    useExtractionSettings();
+  const {
+    settings,
+    testResult,
+    busy,
+    saveLocalModel,
+    saveByok,
+    testLocalModel,
+    testByok,
+    activate,
+    activateInterviewSource,
+    deleteLocalModel,
+    deleteByok,
+  } = useExtractionSettings();
 
   const [selected, setSelected] = useState<ExtractionSource>("server_fallback");
 
@@ -247,6 +258,43 @@ export function ExtractionSettingsScreen({ onBack }: Props) {
       {testResult && (
         <p style={{ color: testResult.ok ? "green" : "red", marginTop: "1em" }}>{testResult.message}</p>
       )}
+
+      <hr style={{ margin: "2em 0" }} />
+
+      <h2>Mock Interview Source</h2>
+      <p>
+        Which model drives your practice interview questions — independent of the extraction
+        source above. Reuses whichever Local Model / BYOK config you've saved and tested here;
+        every answer is still graded on SkillsHome's servers regardless of this choice.
+      </p>
+      <div className="row" style={{ gap: "0.5em", justifyContent: "center" }}>
+        <button
+          type="button"
+          onClick={() => activateInterviewSource("local_model")}
+          disabled={busy || !settings?.local_model}
+          title={!settings?.local_model ? "Configure and save a Local Model above first" : undefined}
+          style={{ fontWeight: settings?.active_interview_source === "local_model" ? 700 : 400 }}
+        >
+          Local Model{settings?.active_interview_source === "local_model" ? " (active)" : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => activateInterviewSource("byok_frontier")}
+          disabled={busy || !settings?.byok_frontier}
+          title={!settings?.byok_frontier ? "Configure and save a BYOK key above first" : undefined}
+          style={{ fontWeight: settings?.active_interview_source === "byok_frontier" ? 700 : 400 }}
+        >
+          Bring Your Own Key{settings?.active_interview_source === "byok_frontier" ? " (active)" : ""}
+        </button>
+        <button
+          type="button"
+          onClick={() => activateInterviewSource("server_fallback")}
+          disabled={busy}
+          style={{ fontSize: "0.9em", opacity: 0.8, fontWeight: settings?.active_interview_source === "server_fallback" ? 700 : 400 }}
+        >
+          Use SkillsHome's servers{settings?.active_interview_source === "server_fallback" ? " (active)" : ""}
+        </button>
+      </div>
 
       <button type="button" onClick={onBack} style={{ marginTop: "2em" }}>
         Back
