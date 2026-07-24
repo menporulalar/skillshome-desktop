@@ -95,3 +95,43 @@ export async function confirmIngestion(
     success: boolean;
   }>;
 }
+
+// ai-interview-agent Module 4 — mirrors skillshome-app's InterviewService response
+// shapes loosely (untyped here, same reasoning as stageIngestion/confirmIngestion
+// above: this client transports, it doesn't need the deep shape).
+
+export interface ProposedTurnResult {
+  turn: { score: number | null; feedback?: string; reason?: string };
+  status: 'in_progress' | 'complete' | 'paused_offer';
+  question: { text: string; trackName: string; kind: string; options?: string[]; perTurnSeconds: number } | null;
+  report: unknown;
+}
+
+export async function proposeInterviewTurn(
+  client: Client,
+  sessionId: string,
+  answerText: string,
+  proposedScore?: number,
+): Promise<ProposedTurnResult> {
+  return callToolOrThrow(client, 'interview.turn.propose', {
+    sessionId,
+    answerText,
+    ...(proposedScore != null ? { proposedScore } : {}),
+  }) as Promise<ProposedTurnResult>;
+}
+
+export interface InterviewSessionRead {
+  sessionId: string;
+  status: string;
+  tracks: Array<{
+    name: string;
+    difficulty: number;
+    turns: Array<{ question: string; answerText: string }>;
+  }>;
+  report: unknown;
+  pendingQuestion: { text: string; trackName: string; kind: string; options?: string[]; perTurnSeconds: number } | null;
+}
+
+export async function readInterviewSession(client: Client, sessionId: string): Promise<InterviewSessionRead> {
+  return callToolOrThrow(client, 'interview.session.read', { sessionId }) as Promise<InterviewSessionRead>;
+}
