@@ -11,11 +11,12 @@ import { ExtractionProgressScreen } from "./ingest/ExtractionProgressScreen";
 import { ReviewConfirmScreen } from "./ingest/ReviewConfirmScreen";
 import { ConnectedProjectsScreen } from "./project-sync/ConnectedProjectsScreen";
 import { ProjectSyncScheduler } from "./project-sync/useProjectSync";
+import { MockInterviewScreen } from "./interview/MockInterviewScreen";
 import "./App.css";
 
 // "signin" isn't a stored state — it's purely a function of isSignedIn below, so
 // it can't go stale (e.g. after sign-out) the way a stored screen value could.
-type Screen = "home" | "settings" | "picker" | "progress" | "review" | "projects";
+type Screen = "home" | "settings" | "picker" | "progress" | "review" | "projects" | "interview";
 
 // Carries just enough across the picker → progress → review hand-off; the actual
 // polling/async state lives in the two hooks below (lifted here so it survives
@@ -66,6 +67,10 @@ function App() {
         <ConnectedProjectsScreen onBack={() => setScreen("home")} />
       </>
     );
+  }
+
+  if (screen === "interview") {
+    return <MockInterviewScreen onBack={() => setScreen("home")} />;
   }
 
   if (screen === "picker") {
@@ -143,6 +148,7 @@ function App() {
         onStartExtraction={() => setScreen("picker")}
         onOpenSettings={() => setScreen("settings")}
         onOpenProjects={() => setScreen("projects")}
+        onOpenInterview={() => setScreen("interview")}
         signOut={signin.signOut}
       />
     </>

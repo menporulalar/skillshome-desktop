@@ -8,8 +8,10 @@
     "extract:sample:stage": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction-and-stage.ts",
     "stage": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-local-extraction-and-stage.ts",
     "confirm": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/confirm-staged-ingestion.ts",
-    "test": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveExtractionConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/mcpClient.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/runProjectSync.test.ts",
-    "project-sync": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-project-sync.ts"
+    "test": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveExtractionConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveInterviewLoopConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/mcpClient.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/runProjectSync.test.ts",
+    "project-sync": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-project-sync.ts",
+    "interview-turn": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-interview-turn.ts",
+    "interview-opening": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-interview-opening-question.ts"
   },
   "dependencies": {
     "@menporulalar/agents-core": "^0.3.0",

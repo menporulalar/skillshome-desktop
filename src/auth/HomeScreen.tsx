@@ -4,10 +4,11 @@ interface Props {
   onStartExtraction: () => void;
   onOpenSettings: () => void;
   onOpenProjects: () => void;
+  onOpenInterview: () => void;
   signOut: () => void;
 }
 
-export function HomeScreen({ onStartExtraction, onOpenSettings, onOpenProjects, signOut }: Props) {
+export function HomeScreen({ onStartExtraction, onOpenSettings, onOpenProjects, onOpenInterview, signOut }: Props) {
   return (
     <main className="container">
       <h1>Signed in</h1>
@@ -18,6 +19,9 @@ export function HomeScreen({ onStartExtraction, onOpenSettings, onOpenProjects, 
         </button>
         <button type="button" onClick={onOpenProjects}>
           Connected Projects
+        </button>
+        <button type="button" onClick={onOpenInterview}>
+          Mock Interview
         </button>
         <button type="button" onClick={onOpenSettings}>
           Extraction Settings

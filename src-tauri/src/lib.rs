@@ -1,6 +1,7 @@
 mod auth;
 mod extraction;
 mod ingest;
+mod interview;
 mod projectsync;
 
 use auth::backend_client::{BackendClient, IngestStatusResponse, ProfileSummary};
@@ -434,7 +435,10 @@ pub fn run() {
             projectsync::connect_local_project,
             projectsync::remove_connected_project,
             projectsync::run_project_sync,
-            projectsync::list_stale_project_grants
+            projectsync::list_stale_project_grants,
+            interview::list_role_templates,
+            interview::start_mock_interview,
+            interview::submit_interview_turn
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
