@@ -3,9 +3,17 @@ name: Release
 # Builds SkillsHome Desktop for macOS (Apple Silicon + Intel), Windows, and Linux,
 # and attaches the installers to a GitHub Release. Triggered by pushing a `v*` tag.
 #
-# These builds are UNSIGNED (no Apple notarization, no Windows code-signing cert
-# configured yet — see README.md). macOS Gatekeeper and Windows SmartScreen will
-# warn on first launch; that's expected until signing is set up as a fast-follow.
+# These builds are UNSIGNED at the OS level (no Apple notarization, no Windows
+# code-signing cert configured yet — see README.md). macOS Gatekeeper and Windows
+# SmartScreen will warn on first launch; that's expected until signing is set up as
+# a fast-follow.
+#
+# NOTE — two unrelated things are both called "signing" here. The above is OS
+# code-signing (Gatekeeper/SmartScreen trust), still absent. Separately, #28 added
+# UPDATER signing: the minisign keypair that lets the app verify an update package
+# against the pubkey in tauri.conf.json. Updater signing is configured and verified;
+# it does nothing for Gatekeeper warnings, and OS notarization would do nothing for
+# update verification.
 
 on:
   push:
@@ -113,6 +121,10 @@ jobs:
             certificate) is a planned fast-follow — see the README.
 
             Choose the download for your platform below.
-          releaseDraft: false
+          # Draft while the updater rollout is being validated (#28). A draft is not
+          # served by `releases/latest/download/...`, which is the updater endpoint —
+          # so nothing reaches existing installs until a human promotes the release.
+          # Inspect the attached latest.json first, then publish to go live.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
