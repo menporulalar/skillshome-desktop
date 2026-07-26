@@ -221,11 +221,15 @@ pub async fn remove_connected_project(
 pub async fn run_project_sync(
     signin: tauri::State<'_, SigninState>,
     grants_state: tauri::State<'_, GrantsState>,
+    update_guard: tauri::State<'_, crate::update::UpdateGuard>,
     connected_project_id: String,
     profile_id: String,
     last_signal_hash: Option<String>,
     agent_config_scan_enabled: bool,
 ) -> Result<serde_json::Value, String> {
+    // #28 R3: a folder scan + stage can run for a while, and the scheduler fires it
+    // unattended on app open. An update restart must never land mid-scan.
+    let _op = update_guard.begin_op();
     let token = require_access_token(&signin)?;
     let grant = grants_state
         .get(&connected_project_id)?
