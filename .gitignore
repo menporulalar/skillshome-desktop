@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Feature #28 — Desktop auto-update signing keys (NEVER commit private keys)
+src-tauri/.tauri-keys
+src-tauri/.tauri-keys.pub
+src-tauri/.tauri-keys.*

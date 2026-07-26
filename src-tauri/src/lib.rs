@@ -3,6 +3,7 @@ mod extraction;
 mod ingest;
 mod interview;
 mod projectsync;
+mod update;
 
 use auth::backend_client::{BackendClient, IngestStatusResponse, ProfileSummary};
 use auth::state::{SigninState, SigninStatus};
@@ -388,10 +389,23 @@ async fn confirm_local_extraction(
     .await
 }
 
+// ── R1/R3 — Desktop auto-update (Feature #28) ────────────────────────
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<update::UpdateInfo, String> {
+    update::check_for_updates(&app).await
+}
+
+#[tauri::command]
+async fn apply_update(app: tauri::AppHandle) -> Result<(), String> {
+    update::apply_update(&app).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SigninState::default())
         .manage(ExtractionSettingsState::default())
         .setup(|app| {
@@ -430,6 +444,8 @@ pub fn run() {
             confirm_server_fallback_ingest,
             start_local_extraction_and_stage,
             confirm_local_extraction,
+            check_for_updates,
+            apply_update,
             projectsync::pick_project_folder,
             projectsync::list_connected_projects,
             projectsync::connect_local_project,
