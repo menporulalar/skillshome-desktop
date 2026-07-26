@@ -77,11 +77,13 @@ jobs:
           # flow polls github.com/login/device directly). Same "never wired into release.yml"
           # gap as the two vars above; also not a secret, no client_secret needed for this flow.
           GITHUB_DEVICE_CLIENT_ID: Ov23liHl2gkZau28nsAu
-          # R2 — Feature #28 auto-update signing: private key stored as a GitHub secret,
-          # base64-encoded (e.g. `cat .tauri-keys | base64 | pbcopy` then paste into
-          # GitHub repo settings → Secrets → TAURI_SIGNING_PRIVATE_KEY). This env var
-          # is read by the tauri-action to sign the release manifest. Never commit the
-          # raw private key; rotation is possible (the keypair supports concurrent keys).
+          # R2 — Feature #28 auto-update signing. The secret's value is the VERBATIM
+          # CONTENTS of src-tauri/.tauri-keys (`cat .tauri-keys | pbcopy`) — that file is
+          # ALREADY a base64 blob. Do NOT run it through base64 again: the CLI applies
+          # exactly one decode (helpers/updater_signature.rs decode_key), so a
+          # double-encoded value fails with the misleading error "incorrect updater
+          # private key password: Missing encoded key in secret key" — which points at
+          # the password, not the real cause. Never commit the key itself.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           # If a password was used when generating the keypair, provide it here as a secret.
           # The current keypair has no password — leave this unset or empty.
