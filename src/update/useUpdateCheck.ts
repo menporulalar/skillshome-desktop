@@ -114,11 +114,20 @@ export function useUpdateCheck() {
  */
 export function useDeclareUpdateBusy(busy: boolean) {
   useEffect(() => {
-    void invoke("set_update_ui_busy", { busy }).catch(() => undefined);
+    // Logged, not swallowed. If this command fails — unmanaged state, a renamed
+    // command — the UI half of the guard silently stops working while everything
+    // still looks fine, which is precisely the failure shape this feature has
+    // already produced three times. The Rust-side RAII guards still hold, so the
+    // degradation is safe rather than dangerous, but it must not be invisible.
+    void invoke("set_update_ui_busy", { busy }).catch((err) => {
+      console.error("set_update_ui_busy failed — UI busy-state guard is not active", err);
+    });
     // Clear on unmount so a crash or navigation can't strand the flag at true and
     // block updates forever.
     return () => {
-      void invoke("set_update_ui_busy", { busy: false }).catch(() => undefined);
+      void invoke("set_update_ui_busy", { busy: false }).catch((err) => {
+        console.error("set_update_ui_busy(false) failed — busy flag may be stranded", err);
+      });
     };
   }, [busy]);
 }
