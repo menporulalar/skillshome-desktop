@@ -10,11 +10,18 @@ import { useUpdateCheck } from "./useUpdateCheck";
  * the safety mechanism.
  */
 export function UpdateBanner() {
-  const { info, guard, applying, applyMessage, applyError, applyUpdate } = useUpdateCheck();
+  const { info, guard, applying, applyMessage, applyError, downloadProgress, applyUpdate } =
+    useUpdateCheck();
 
   if (!info?.available) return null;
 
   const blocked = guard.busy;
+  // `total` is only known once the server sends Content-Length; until then (or if it
+  // never does) the bar renders indeterminate rather than claiming a false percentage.
+  const progressPercent =
+    downloadProgress?.total != null
+      ? Math.min(100, Math.round((downloadProgress.downloaded / downloadProgress.total) * 100))
+      : null;
 
   return (
     <section
@@ -34,6 +41,38 @@ export function UpdateBanner() {
 
       {applyMessage && <p role="status">{applyMessage}</p>}
       {applyError && <p role="alert">{applyError}</p>}
+
+      {applying && (
+        <div
+          role="progressbar"
+          aria-label="Downloading update"
+          aria-valuenow={progressPercent ?? undefined}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          style={{
+            height: "6px",
+            borderRadius: "3px",
+            background: "color-mix(in srgb, currentColor 15%, transparent)",
+            margin: "0.5em 0",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              borderRadius: "3px",
+              background: "currentColor",
+              width: progressPercent != null ? `${progressPercent}%` : "40%",
+              // Indeterminate state (no Content-Length): a sliding segment rather than
+              // a static bar, so it doesn't read as "stuck".
+              animation: progressPercent == null ? "update-banner-indeterminate 1.2s ease-in-out infinite" : undefined,
+            }}
+          />
+        </div>
+      )}
+      {applying && (
+        <style>{`@keyframes update-banner-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }`}</style>
+      )}
 
       {blocked && (
         <p role="status" style={{ margin: "0.35em 0", opacity: 0.85 }}>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // Mirrors src-tauri/src/update.rs's `UpdateInfo` (serde default field names).
 export interface UpdateInfo {
@@ -21,6 +22,15 @@ export interface ApplyOutcome {
   applied_on_next_launch: boolean;
   message: string;
 }
+
+// Mirrors `DownloadProgress`. `total` is null whenever the server response had no
+// `Content-Length` — rendered as an indeterminate bar rather than a percentage.
+export interface DownloadProgress {
+  downloaded: number;
+  total: number | null;
+}
+
+const DOWNLOAD_PROGRESS_EVENT = "updater://download-progress";
 
 // Once a day is plenty for a desktop app the user may leave open for weeks; the
 // check is a single HTTP GET of a small manifest.
@@ -45,6 +55,7 @@ export function useUpdateCheck() {
   const [applying, setApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   // StrictMode double-effects must not fire two checks on mount.
   const checkedRef = useRef(false);
@@ -89,6 +100,13 @@ export function useUpdateCheck() {
     setApplying(true);
     setApplyError(null);
     setApplyMessage(null);
+    setDownloadProgress(null);
+    // Listen before invoking — the backend can start emitting chunks before this
+    // promise resolves, and a listener registered after the invoke could miss the
+    // earliest ones.
+    const unlisten = await listen<DownloadProgress>(DOWNLOAD_PROGRESS_EVENT, (event) => {
+      setDownloadProgress(event.payload);
+    });
     try {
       // On success this never returns — the app restarts. A returned value means
       // the backend declined to restart (work started during the download) and the
@@ -99,11 +117,23 @@ export function useUpdateCheck() {
       setApplyError(String(err));
       void refreshGuard();
     } finally {
+      unlisten();
+      setDownloadProgress(null);
       setApplying(false);
     }
   }, [refreshGuard]);
 
-  return { info, guard, applying, applyMessage, applyError, checkError, check, applyUpdate };
+  return {
+    info,
+    guard,
+    applying,
+    applyMessage,
+    applyError,
+    checkError,
+    downloadProgress,
+    check,
+    applyUpdate,
+  };
 }
 
 /**

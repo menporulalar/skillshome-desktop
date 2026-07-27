@@ -54,4 +54,11 @@ zbus-secret-service-keyring-store = { version = "1.0.0", features = ["crypto-rus
 # features across [dependencies]/[dev-dependencies] for test builds only, so this
 # doesn't leak into release builds.
 tauri = { version = "2", features = ["test"] }
+# Signs test fixtures for update.rs's signature-verification tests. `minisign-verify`
+# (pulled in transitively by tauri-plugin-updater, but not re-exported — needs its own
+# entry to be `use`-able here) can only verify — `minisign` generates real keypairs and
+# signatures in the same wire format, so the test exercises actual minisign encode/decode
+# against the identical crate tauri-plugin-updater verifies with, not a hand-rolled stand-in.
+minisign = "0.9.1"
+minisign-verify = "0.2.5"
 

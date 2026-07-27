@@ -437,6 +437,14 @@ fn update_guard_status(
     update_guard.status()
 }
 
+// `generate_context!()` embeds a fixed-name Info.plist symbol (`_EMBED_INFO_PLIST` on
+// macOS) at the call site, not scoped per invocation. update.rs's manifest_tests needs
+// its own second `generate_context!()` call (against a test fixture config) to get a
+// real, plugin-backed `Updater` — unconditionally compiling this one too would collide
+// with it at link time in `cargo test`. Real behavior is untouched: `run()` is only
+// ever called from `main.rs`'s bin target, which is never part of a `cargo test --lib`
+// build.
+#[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -498,3 +506,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+pub fn run() {}

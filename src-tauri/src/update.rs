@@ -16,7 +16,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 #[derive(serde::Serialize)]
@@ -26,6 +26,17 @@ pub struct UpdateInfo {
     pub latest_version: Option<String>,
     pub body: Option<String>,
 }
+
+/// R5 — emitted on `DOWNLOAD_PROGRESS_EVENT` for every chunk `download_and_install`
+/// reports. `total` is `None` when the server response has no `Content-Length`, which
+/// the frontend renders as an indeterminate bar rather than a percentage.
+#[derive(Clone, serde::Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
+const DOWNLOAD_PROGRESS_EVENT: &str = "updater://download-progress";
 
 #[derive(serde::Serialize)]
 pub struct UpdateGuardStatus {
@@ -114,7 +125,19 @@ pub async fn check_for_updates(app: &AppHandle) -> Result<UpdateInfo, String> {
     // but only this one is authoritative for the comparison the plugin performs.
     let current_version = app.package_info().version.to_string();
 
-    match updater.check().await {
+    interpret_check(updater.check().await, current_version)
+}
+
+/// Maps a raw `Updater::check()` result onto `UpdateInfo`. Split out from
+/// `check_for_updates` purely so `manifest_tests` below can drive it against an
+/// `Updater` built with a mocked endpoint instead of `app`'s real, production one —
+/// `Updater`/`Update` have no public constructor, so a real (if pointed-elsewhere)
+/// `Updater::check()` call is the only way to get one at all.
+fn interpret_check(
+    result: tauri_plugin_updater::Result<Option<tauri_plugin_updater::Update>>,
+    current_version: String,
+) -> Result<UpdateInfo, String> {
+    match result {
         Ok(Some(update)) => Ok(UpdateInfo {
             available: true,
             current_version,
@@ -159,11 +182,26 @@ pub async fn apply_update(app: &AppHandle, guard: &UpdateGuard) -> Result<ApplyO
         });
     };
 
+    // R5: cumulative bytes downloaded so far, emitted alongside the (possibly
+    // unknown) total per chunk so the frontend can render a determinate or
+    // indeterminate bar. `app` is cloned into the closure since `download_and_install`
+    // requires `FnMut`, not a borrow tied to this stack frame.
+    let mut downloaded: u64 = 0;
+    let progress_app = app.clone();
     update
         .download_and_install(
-            // Per-chunk progress. Wired to no-ops for now; surfacing a progress
-            // bar is R5 (P1), and needs an event emit rather than a callback here.
-            |_chunk_len, _content_len| {},
+            move |chunk_len, total| {
+                downloaded += chunk_len as u64;
+                // Best-effort: a missed event just means the bar doesn't tick for one
+                // chunk. The download/install itself does not depend on this.
+                let _ = progress_app.emit(
+                    DOWNLOAD_PROGRESS_EVENT,
+                    DownloadProgress {
+                        downloaded,
+                        total,
+                    },
+                );
+            },
             || {},
         )
         .await
@@ -258,5 +296,243 @@ mod tests {
         let clone = g.clone();
         let _op = clone.begin_op();
         assert!(g.busy_reason().is_some());
+    }
+}
+
+/// Closes the Phase 1 DoD gap flagged in `tasks.md`: "update detection against a
+/// mocked manifest". Drives the real `tauri-plugin-updater` `Updater::check()` against
+/// a local HTTP stub, through `interpret_check` — the same mapping `check_for_updates`
+/// uses in production.
+///
+/// Needs its own fixture config (`tests/fixtures/updater-test/tauri.conf.json`) rather
+/// than the app's real `tauri.conf.json`: the plugin only accepts a plaintext `http://`
+/// loopback endpoint when `dangerousInsecureTransportProtocol` is set, and the real
+/// config rightly does not set it. Nothing about the fixture's pubkey/endpoints values
+/// matters — both are overridden per-call below — only the insecure-transport flag.
+#[cfg(test)]
+mod manifest_tests {
+    use super::*;
+    use tauri_plugin_updater::UpdaterExt;
+
+    /// Serves `body` once on an ephemeral loopback port. Mirrors the stub-server
+    /// pattern already used by `auth::silent_refresh`'s tests.
+    fn manifest_server(body: String) -> String {
+        let server = tiny_http::Server::http("127.0.0.1:0").expect("bind ephemeral port");
+        let addr = server.server_addr().to_ip().expect("ip address");
+        std::thread::spawn(move || {
+            if let Ok(request) = server.recv() {
+                let header =
+                    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                        .unwrap();
+                let response = tiny_http::Response::from_string(body).with_header(header);
+                let _ = request.respond(response);
+            }
+        });
+        format!("http://{addr}/latest.json")
+    }
+
+    fn mock_updater_app() -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .plugin(
+                tauri_plugin_updater::Builder::new()
+                    .target("test-target")
+                    .build(),
+            )
+            .build(tauri::generate_context!(
+                "tests/fixtures/updater-test/tauri.conf.json"
+            ))
+            .expect("mock app with updater plugin should build")
+    }
+
+    fn manifest_json(version: &str) -> String {
+        serde_json::json!({
+            "version": version,
+            "notes": "test release notes",
+            "pub_date": null,
+            "platforms": {
+                "test-target": { "url": "http://127.0.0.1:1/unused", "signature": "" }
+            }
+        })
+        .to_string()
+    }
+
+    /// Builds an `Updater` pointed at `endpoint`, bypassing the fixture config's
+    /// (empty) `endpoints`/`pubkey` — matches how `check_for_updates` builds its own
+    /// `Updater` except for this one override.
+    fn updater_against(app: &tauri::App<tauri::test::MockRuntime>, endpoint: &str) -> tauri_plugin_updater::Updater {
+        app.handle()
+            .updater_builder()
+            .endpoints(vec![endpoint.parse().unwrap()])
+            .expect("loopback http endpoint should validate under dangerousInsecureTransportProtocol")
+            .build()
+            .expect("updater should build")
+    }
+
+    #[tokio::test]
+    async fn reports_available_when_manifest_version_is_newer() {
+        let endpoint = manifest_server(manifest_json("9.9.9"));
+        let app = mock_updater_app();
+        let updater = updater_against(&app, &endpoint);
+
+        let info = interpret_check(updater.check().await, "0.1.0".to_string())
+            .expect("check should succeed against a well-formed manifest");
+
+        assert!(info.available);
+        assert_eq!(info.latest_version.as_deref(), Some("9.9.9"));
+        assert_eq!(info.current_version, "0.1.0");
+        assert_eq!(info.body.as_deref(), Some("test release notes"));
+    }
+
+    #[tokio::test]
+    async fn reports_unavailable_when_manifest_version_is_not_newer() {
+        // Same version as the fixture app's own `current_version` ("0.1.0", set in
+        // tests/fixtures/updater-test/tauri.conf.json) — must not be offered as an update.
+        let endpoint = manifest_server(manifest_json("0.1.0"));
+        let app = mock_updater_app();
+        let updater = updater_against(&app, &endpoint);
+
+        let info = interpret_check(updater.check().await, "0.1.0".to_string())
+            .expect("check should succeed even when there is nothing newer");
+
+        assert!(!info.available);
+        assert_eq!(info.latest_version, None);
+    }
+
+    #[tokio::test]
+    async fn surfaces_an_error_for_a_malformed_manifest() {
+        // Exactly the "malformed manifest" case useUpdateCheck.ts's checkError path
+        // exists for — must come back as Err, never panic or silently report no update.
+        let endpoint = manifest_server("not json".to_string());
+        let app = mock_updater_app();
+        let updater = updater_against(&app, &endpoint);
+
+        let result = interpret_check(updater.check().await, "0.1.0".to_string());
+
+        assert!(result.is_err());
+    }
+}
+
+/// Closes the other half of the Phase 1 DoD gap: "signature verification
+/// (valid/invalid/tampered)". `verify_signature` inside tauri-plugin-updater
+/// (`updater.rs`) is private, so it can't be called directly — this instead drives the
+/// exact same `minisign_verify::{PublicKey, Signature}` calls it makes, against a
+/// keypair and payload generated here with the sibling `minisign` crate (same author,
+/// interoperable wire format; `minisign-verify` only verifies, it can't sign).
+/// A pass here is a direct guarantee about the primitive the plugin depends on, not a
+/// reimplementation of it.
+#[cfg(test)]
+mod signature_tests {
+    use base64::Engine;
+
+    struct SignedFixture {
+        pubkey_b64: String,
+        signature_b64: String,
+        payload: Vec<u8>,
+    }
+
+    /// Signs `payload` with a freshly generated keypair and returns the same two
+    /// base64 blobs `update.rs`'s doc comment says tauri.conf.json's `pubkey` and the
+    /// manifest's `signature` field hold: base64 of the whole `.pub`/`.sig` file text,
+    /// matching `verify_signature`'s `base64_to_string` -> `PublicKey/Signature::decode`
+    /// chain in tauri-plugin-updater.
+    fn sign_fixture(payload: &[u8]) -> SignedFixture {
+        let keypair =
+            minisign::KeyPair::generate_unencrypted_keypair().expect("keypair generation");
+        let pubkey_text = keypair.pk.to_box().expect("public key box").to_string();
+        let sig_box = minisign::sign(None, &keypair.sk, payload, Some("test"), Some("test"))
+            .expect("signing should succeed");
+
+        SignedFixture {
+            pubkey_b64: base64::engine::general_purpose::STANDARD.encode(pubkey_text),
+            signature_b64: base64::engine::general_purpose::STANDARD.encode(sig_box.to_string()),
+            payload: payload.to_vec(),
+        }
+    }
+
+    /// Decodes the outer base64 layer to the plain multi-line `.pub`/`.sig` file text —
+    /// the same step `verify_signature`'s `base64_to_string` performs.
+    fn decode_outer(b64: &str) -> String {
+        String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64)
+                .expect("valid base64"),
+        )
+        .expect("valid utf8")
+    }
+
+    fn verify(
+        pubkey_b64: &str,
+        signature_b64: &str,
+        data: &[u8],
+    ) -> std::result::Result<(), minisign_verify::Error> {
+        let public_key = minisign_verify::PublicKey::decode(&decode_outer(pubkey_b64))
+            .expect("valid pubkey encoding");
+        let signature = minisign_verify::Signature::decode(&decode_outer(signature_b64))
+            .expect("valid signature encoding");
+        public_key.verify(data, &signature, true)
+    }
+
+    #[test]
+    fn valid_signature_verifies() {
+        let fixture = sign_fixture(b"skillshome-desktop-update-package-bytes");
+        assert!(verify(&fixture.pubkey_b64, &fixture.signature_b64, &fixture.payload).is_ok());
+    }
+
+    #[test]
+    fn tampered_payload_byte_is_rejected() {
+        let fixture = sign_fixture(b"skillshome-desktop-update-package-bytes");
+        let mut tampered = fixture.payload.clone();
+        tampered[0] ^= 0xFF;
+
+        assert!(
+            verify(&fixture.pubkey_b64, &fixture.signature_b64, &tampered).is_err(),
+            "a single flipped payload byte must fail verification"
+        );
+    }
+
+    #[test]
+    fn tampered_signature_is_rejected() {
+        let fixture = sign_fixture(b"skillshome-desktop-update-package-bytes");
+        let sig_text = decode_outer(&fixture.signature_b64);
+        let lines: Vec<&str> = sig_text.lines().collect();
+        assert_eq!(
+            lines.len(),
+            4,
+            "minisign .sig text is 4 lines: untrusted comment, sig, trusted comment, global sig"
+        );
+
+        // Flip a byte inside the signature line's own base64 payload — specifically
+        // within the 64-byte Ed25519 signature (bytes 10..74 of the decoded 74-byte
+        // blob; the first 10 bytes are the algorithm tag + key id and must stay intact
+        // or `Signature::decode` itself would reject the corrupted blob, which would
+        // prove nothing about *verification* rejecting it). The re-encoded line stays
+        // valid base64/UTF-8, so decode() still succeeds — only the signature is wrong.
+        let mut sig_line_bytes = base64::engine::general_purpose::STANDARD
+            .decode(lines[1])
+            .expect("valid base64 sig line");
+        assert_eq!(sig_line_bytes.len(), 74, "2-byte alg + 8-byte keynum + 64-byte sig");
+        sig_line_bytes[40] ^= 0xFF;
+        let corrupted_line = base64::engine::general_purpose::STANDARD.encode(sig_line_bytes);
+        let corrupted_text = format!(
+            "{}\n{}\n{}\n{}\n",
+            lines[0], corrupted_line, lines[2], lines[3]
+        );
+        let corrupted_b64 = base64::engine::general_purpose::STANDARD.encode(corrupted_text);
+
+        assert!(
+            verify(&fixture.pubkey_b64, &corrupted_b64, &fixture.payload).is_err(),
+            "a corrupted signature must fail verification even against the original payload"
+        );
+    }
+
+    #[test]
+    fn wrong_public_key_is_rejected() {
+        let fixture = sign_fixture(b"skillshome-desktop-update-package-bytes");
+        let other = sign_fixture(b"unrelated-payload-signed-by-a-different-key");
+
+        assert!(
+            verify(&other.pubkey_b64, &fixture.signature_b64, &fixture.payload).is_err(),
+            "a signature made by a different keypair must be rejected"
+        );
     }
 }
