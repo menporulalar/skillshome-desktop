@@ -359,6 +359,7 @@ fn byok_env_pair(settings_state: &tauri::State<'_, ExtractionSettingsState>) -> 
 
 #[tauri::command]
 async fn start_local_extraction_and_stage(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SigninState>,
     settings_state: tauri::State<'_, ExtractionSettingsState>,
     update_guard: tauri::State<'_, update::UpdateGuard>,
@@ -372,6 +373,7 @@ async fn start_local_extraction_and_stage(
     let extra_env_refs: Vec<(&str, &str)> = extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
     ingest::sidecar::run_sidecar_command(
+        &app,
         "stage",
         &[&file_path, &profile_id],
         &token,
@@ -384,6 +386,7 @@ async fn start_local_extraction_and_stage(
 
 #[tauri::command]
 async fn confirm_local_extraction(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SigninState>,
     update_guard: tauri::State<'_, update::UpdateGuard>,
     profile_id: String,
@@ -395,6 +398,7 @@ async fn confirm_local_extraction(
     let payload = serde_json::to_string(&confirmed_items).map_err(|e| e.to_string())?;
 
     ingest::sidecar::run_sidecar_command(
+        &app,
         "confirm",
         &[&profile_id],
         &token,

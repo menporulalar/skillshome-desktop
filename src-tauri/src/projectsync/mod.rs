@@ -219,6 +219,7 @@ pub async fn remove_connected_project(
 /// lastSignalHash → stage over MCP), then stamps last_scan_at on success.
 #[tauri::command]
 pub async fn run_project_sync(
+    app: tauri::AppHandle,
     signin: tauri::State<'_, SigninState>,
     grants_state: tauri::State<'_, GrantsState>,
     update_guard: tauri::State<'_, crate::update::UpdateGuard>,
@@ -239,6 +240,7 @@ pub async fn run_project_sync(
     let agent_flag = if agent_config_scan_enabled { "true" } else { "false" };
 
     let result = sidecar::run_sidecar_command(
+        &app,
         "project-sync",
         &[&grant.path, &profile_id, &connected_project_id, &hash_arg, agent_flag],
         &token,
