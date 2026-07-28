@@ -66,8 +66,15 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Stage bundled sidecar (macOS only — Windows/Linux are a follow-up)
+      - name: Stage bundled sidecar (macOS)
         if: matrix.platform == 'macos-latest'
+        env:
+          # sidecar/.npmrc maps @menporulalar to GitHub Packages via this var.
+          # agents-core is published from skillshome-app, a different repo, so the
+          # automatic per-run token only works if that package's "Manage Actions
+          # access" has explicitly granted skillshome-desktop read access — a
+          # one-time GitHub UI/API step, not something this workflow can do itself.
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd sidecar
           npm ci
@@ -89,6 +96,43 @@ jobs:
           tar -xzf /tmp/node.tar.gz -C /tmp
           cp "/tmp/node-v${NODE_VERSION}-darwin-${NODE_ARCH}/bin/node" src-tauri/resources/sidecar/node
           chmod +x src-tauri/resources/sidecar/node
+
+      - name: Stage bundled sidecar (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd sidecar
+          npm ci
+          npm run bundle
+          cd ..
+          mkdir -p src-tauri/resources/sidecar/dist
+          cp sidecar/dist/*.cjs src-tauri/resources/sidecar/dist/
+
+          # ubuntu-22.04 has no cross-arch matrix split (unlike macOS) — it only
+          # ever builds for its own runner's native x64, so the runner's own node
+          # is always the right architecture.
+          cp "$(command -v node)" src-tauri/resources/sidecar/node
+          chmod +x src-tauri/resources/sidecar/node
+
+      - name: Stage bundled sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd sidecar
+          npm ci
+          npm run bundle
+          cd ..
+          mkdir -p src-tauri/resources/sidecar/dist
+          cp sidecar/dist/*.cjs src-tauri/resources/sidecar/dist/
+
+          # windows-latest, like ubuntu-22.04, has no cross-arch matrix split —
+          # the runner's own node.exe is always the right architecture. tauri.
+          # windows.conf.json maps this to "sidecar/node.exe" (not "sidecar/node",
+          # the macOS/Linux name) via a platform-specific bundle.resources override.
+          cp "$(command -v node)" src-tauri/resources/sidecar/node.exe
 
       - name: Build and release
         uses: tauri-apps/tauri-action@v0

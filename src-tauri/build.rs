@@ -28,19 +28,25 @@ fn load_dotenv_into_rustc_env() {
 }
 
 /// `tauri.conf.json`'s `bundle.resources` (release sidecar packaging) points at
-/// `resources/sidecar/node` + `resources/sidecar/dist/*.cjs` — `tauri_build::build()`
+/// `resources/sidecar/node` (`node.exe` on Windows, via `tauri.windows.conf.json`'s
+/// platform override) + `resources/sidecar/dist/*.cjs` — `tauri_build::build()`
 /// validates those paths exist on *every* `cargo build`/`cargo check`, not just
 /// real `tauri build` packaging. CI populates them for real before building (see
 /// release.yml), but a fresh dev checkout has neither — write empty placeholders
 /// if missing so `cargo tauri dev` keeps working with zero setup (dev mode's own
-/// sidecar spawn path never reads these; see `ingest/sidecar.rs`).
+/// sidecar spawn path never reads these; see `ingest/sidecar.rs`). Both `node` and
+/// `node.exe` are written unconditionally regardless of host OS — cheap, and
+/// avoids having to duplicate `tauri-utils`' own platform-config resolution here
+/// just to pick the one name that's actually needed.
 fn ensure_sidecar_resource_placeholders() {
     let dist_dir = Path::new("resources/sidecar/dist");
     fs::create_dir_all(dist_dir).expect("failed to create resources/sidecar/dist placeholder dir");
 
-    let node_placeholder = Path::new("resources/sidecar/node");
-    if !node_placeholder.exists() {
-        fs::write(node_placeholder, "").expect("failed to write resources/sidecar/node placeholder");
+    for node_name in ["node", "node.exe"] {
+        let node_placeholder = Path::new("resources/sidecar").join(node_name);
+        if !node_placeholder.exists() {
+            fs::write(&node_placeholder, "").expect("failed to write sidecar node placeholder");
+        }
     }
 
     for script in ["stage", "confirm", "project-sync", "interview-opening", "interview-turn"] {
