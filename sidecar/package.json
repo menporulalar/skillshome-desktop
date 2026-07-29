@@ -11,7 +11,8 @@
     "test": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveExtractionConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/resolveInterviewLoopConfig.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/mcpClient.test.ts && ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/__tests__/runProjectSync.test.ts",
     "project-sync": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-project-sync.ts",
     "interview-turn": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-interview-turn.ts",
-    "interview-opening": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-interview-opening-question.ts"
+    "interview-opening": "ts-node --compiler-options '{\"module\":\"CommonJS\",\"esModuleInterop\":true}' src/run-interview-opening-question.ts",
+    "bundle": "node ./bundle.mjs"
   },
   "dependencies": {
     "@menporulalar/agents-core": "^0.3.0",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^20",
+    "esbuild": "^0.24.0",
     "ts-node": "^10.9.2",
     "typescript": "^5"
   }

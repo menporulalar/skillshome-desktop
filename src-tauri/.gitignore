@@ -9,3 +9,8 @@
 # Dev-machine-local build-time secrets (e.g. GOOGLE_DESKTOP_CLIENT_ID), loaded by
 # build.rs — never commit real client IDs/keys.
 /.env
+
+# Bundled sidecar (release packaging) — build.rs writes empty placeholders here
+# for local dev; release.yml overwrites with a real node binary + esbuild output
+# before `tauri build`. Never committed either way.
+/resources/sidecar/

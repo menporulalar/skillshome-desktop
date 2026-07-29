@@ -1,12 +1,16 @@
 //! Module 4 task 4.12 — the first real Rust→sidecar process spawn, deferred three
 //! times already (tasks 4.9, 4.10, 4.11) waiting for a genuine UI trigger.
 //!
-//! **Dev-mode only** (explicit, approved scope): spawns `npm run <script>` against
-//! the sidecar's checked-out source directory via `CARGO_MANIFEST_DIR` — this
-//! assumes Node/npm installed and the full repo checked out, true for a developer
-//! running `cargo tauri dev`, not for a hypothetical installed end-user bundle.
-//! Real production packaging (bundling the sidecar as a standalone binary via
-//! Tauri's `externalBin`) is a separate, larger follow-up, not attempted here.
+//! Two spawn paths, chosen at runtime via `cfg!(debug_assertions)`:
+//! - **dev** (`cargo tauri dev`): spawns `npm run <script>` against the sidecar's
+//!   checked-out source directory via `CARGO_MANIFEST_DIR` — fast iteration, no
+//!   bundling step, assumes Node/npm and the full repo checkout.
+//! - **release**: `CARGO_MANIFEST_DIR` is a compile-time constant that gets baked
+//!   in as the *build machine's* path (e.g. the CI runner), which doesn't exist on
+//!   an installed user's machine — installed builds instead spawn a bundled `node`
+//!   executable against pre-built `.cjs` bundles shipped as Tauri resources (see
+//!   `sidecar/bundle.mjs` and `tauri.conf.json`'s `bundle.resources`), resolved via
+//!   `app.path().resource_dir()`. macOS only for now; Windows/Linux are a follow-up.
 //!
 //! The sidecar's own stdout is NOT clean single-blob JSON — `@menporulalar/agents-core`'s
 //! logger writes its own info-level JSON lines to stdout (a separate published
@@ -19,6 +23,7 @@
 
 use std::path::PathBuf;
 use std::process::Stdio;
+use tauri::Manager;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command as TokioCommand;
 
@@ -32,6 +37,18 @@ const RESULT_MARKER: &str = "__SIDECAR_RESULT__:";
 fn sidecar_dir() -> Result<PathBuf, String> {
     let raw = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../sidecar"));
     std::fs::canonicalize(&raw).map_err(|e| format!("sidecar directory not found at {}: {e}", raw.display()))
+}
+
+/// Resolves the bundled `node` executable and the directory of pre-built
+/// `<script>.cjs` files shipped as Tauri resources (release builds only —
+/// `tauri.conf.json`'s `bundle.resources` stages them from
+/// `src-tauri/resources/sidecar/`, populated by `.github/workflows/release.yml`).
+fn resolve_bundled_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let resource_dir = app.path().resource_dir().map_err(|e| format!("failed to resolve resource dir: {e}"))?;
+    let sidecar_resources = resource_dir.join("sidecar");
+    let node_bin = sidecar_resources.join(if cfg!(windows) { "node.exe" } else { "node" });
+    let dist_dir = sidecar_resources.join("dist");
+    Ok((node_bin, dist_dir))
 }
 
 /// Parses the last `__SIDECAR_RESULT__:` line out of the sidecar's captured
@@ -63,15 +80,17 @@ fn parse_marker_line(stdout: &[u8]) -> Result<serde_json::Value, String> {
     }
 }
 
-/// Spawns `npm run <script> -- <args...>` in the sidecar directory, with
-/// `SKILLSHOME_ACCESS_TOKEN`/`SKILLSHOME_BACKEND_URL` plus `extra_env` (e.g.
-/// `BYOK_API_KEY`) set — child-process env vars, never sent over a network,
-/// matching the precedent already established for `BYOK_API_KEY` in task 4.9.
-/// If `stdin_payload` is present, it's written to the child's stdin concurrently
-/// with draining stdout (`tokio::join!`, not sequential awaits) — avoids a
-/// pipe-buffer deadlock risk on a large review package that could otherwise fill
-/// the OS pipe buffer before either side finishes.
+/// Spawns the sidecar script (dev: `npm run <script> --`; release: the bundled
+/// `node <script>.cjs`) with `SKILLSHOME_ACCESS_TOKEN`/`SKILLSHOME_BACKEND_URL`
+/// plus `extra_env` (e.g. `BYOK_API_KEY`) set — child-process env vars, never
+/// sent over a network, matching the precedent already established for
+/// `BYOK_API_KEY` in task 4.9. If `stdin_payload` is present, it's written to the
+/// child's stdin concurrently with draining stdout (`tokio::join!`, not
+/// sequential awaits) — avoids a pipe-buffer deadlock risk on a large review
+/// package that could otherwise fill the OS pipe buffer before either side
+/// finishes.
 pub async fn run_sidecar_command(
+    app: &tauri::AppHandle,
     script: &str,
     args: &[&str],
     access_token: &str,
@@ -79,15 +98,20 @@ pub async fn run_sidecar_command(
     stdin_payload: Option<&str>,
     extra_env: &[(&str, &str)],
 ) -> Result<serde_json::Value, String> {
-    let dir = sidecar_dir()?;
+    let mut cmd = if cfg!(debug_assertions) {
+        let dir = sidecar_dir()?;
+        let mut cmd = TokioCommand::new("npm");
+        cmd.current_dir(&dir).arg("run").arg(script).arg("--").args(args);
+        cmd
+    } else {
+        let (node_bin, dist_dir) = resolve_bundled_paths(app)?;
+        let script_path = dist_dir.join(format!("{script}.cjs"));
+        let mut cmd = TokioCommand::new(&node_bin);
+        cmd.arg(&script_path).args(args);
+        cmd
+    };
 
-    let mut cmd = TokioCommand::new("npm");
-    cmd.current_dir(&dir)
-        .arg("run")
-        .arg(script)
-        .arg("--")
-        .args(args)
-        .env("SKILLSHOME_ACCESS_TOKEN", access_token)
+    cmd.env("SKILLSHOME_ACCESS_TOKEN", access_token)
         .env("SKILLSHOME_BACKEND_URL", backend_url)
         .stdin(if stdin_payload.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())

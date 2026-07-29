@@ -12,6 +12,8 @@ import { ReviewConfirmScreen } from "./ingest/ReviewConfirmScreen";
 import { ConnectedProjectsScreen } from "./project-sync/ConnectedProjectsScreen";
 import { ProjectSyncScheduler } from "./project-sync/useProjectSync";
 import { MockInterviewScreen } from "./interview/MockInterviewScreen";
+import { UpdateBanner } from "./update/UpdateBanner";
+import { useDeclareUpdateBusy } from "./update/useUpdateCheck";
 import "./App.css";
 
 // "signin" isn't a stored state — it's purely a function of isSignedIn below, so
@@ -43,6 +45,12 @@ function App() {
   // fresh flow starts from the picker so it doesn't leak into an unrelated
   // extraction.
   const [forceServerFallback, setForceServerFallback] = useState(false);
+
+  // #28 R3: an extraction in flight, or an unconfirmed review package on screen,
+  // must block an update restart. The backend enforces its own RAII guards around
+  // long-running commands — this declares the flow state only the UI can see.
+  // Called before the early returns below, since hooks can't be conditional.
+  useDeclareUpdateBusy(screen === "progress" || screen === "review");
 
   const isSignedIn = signin.accessToken !== null && signin.status.state === "Success";
 
@@ -144,6 +152,11 @@ function App() {
       {/* #25 task 3.8: on-open + weekly local scans run whenever the app is
           open and signed in, independent of which screen is showing. */}
       <ProjectSyncScheduler />
+      {/* #28 R3: home only — an update prompt must never appear over an
+          extraction or an unconfirmed review package. */}
+      <main className="container" style={{ paddingBottom: 0 }}>
+        <UpdateBanner />
+      </main>
       <HomeScreen
         onStartExtraction={() => setScreen("picker")}
         onOpenSettings={() => setScreen("settings")}

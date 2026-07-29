@@ -87,6 +87,7 @@ pub async fn list_role_templates(signin: tauri::State<'_, SigninState>) -> Resul
 /// own opening question is discarded in that case, never shown.
 #[tauri::command]
 pub async fn start_mock_interview(
+    app: tauri::AppHandle,
     signin: tauri::State<'_, SigninState>,
     settings_state: tauri::State<'_, ExtractionSettingsState>,
     profile_id: String,
@@ -113,6 +114,7 @@ pub async fn start_mock_interview(
         // failing session creation outright — the candidate can still start.
         let difficulty = 3; // ClientQuestion doesn't carry difficulty; a reasonable mid default for an opening question.
         if let Ok(result) = sidecar::run_sidecar_command(
+            &app,
             "interview-opening",
             &[&started.question.track_name, &difficulty.to_string()],
             &token,
@@ -138,11 +140,12 @@ pub async fn start_mock_interview(
 
 #[tauri::command]
 pub async fn submit_interview_turn(
+    app: tauri::AppHandle,
     signin: tauri::State<'_, SigninState>,
     session_id: String,
     answer_text: String,
 ) -> Result<serde_json::Value, String> {
     let token = require_access_token(&signin)?;
     let base = crate::auth::backend_client::default_backend_url();
-    sidecar::run_sidecar_command("interview-turn", &[&session_id, &answer_text], &token, base, None, &[]).await
+    sidecar::run_sidecar_command(&app, "interview-turn", &[&session_id, &answer_text], &token, base, None, &[]).await
 }

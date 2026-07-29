@@ -3,9 +3,17 @@ name: Release
 # Builds SkillsHome Desktop for macOS (Apple Silicon + Intel), Windows, and Linux,
 # and attaches the installers to a GitHub Release. Triggered by pushing a `v*` tag.
 #
-# These builds are UNSIGNED (no Apple notarization, no Windows code-signing cert
-# configured yet — see README.md). macOS Gatekeeper and Windows SmartScreen will
-# warn on first launch; that's expected until signing is set up as a fast-follow.
+# These builds are UNSIGNED at the OS level (no Apple notarization, no Windows
+# code-signing cert configured yet — see README.md). macOS Gatekeeper and Windows
+# SmartScreen will warn on first launch; that's expected until signing is set up as
+# a fast-follow.
+#
+# NOTE — two unrelated things are both called "signing" here. The above is OS
+# code-signing (Gatekeeper/SmartScreen trust), still absent. Separately, #28 added
+# UPDATER signing: the minisign keypair that lets the app verify an update package
+# against the pubkey in tauri.conf.json. Updater signing is configured and verified;
+# it does nothing for Gatekeeper warnings, and OS notarization would do nothing for
+# update verification.
 
 on:
   push:
@@ -58,6 +66,74 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Stage bundled sidecar (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          # sidecar/.npmrc maps @menporulalar to GitHub Packages via this var.
+          # agents-core is published from skillshome-app, a different repo, so the
+          # automatic per-run token only works if that package's "Manage Actions
+          # access" has explicitly granted skillshome-desktop read access — a
+          # one-time GitHub UI/API step, not something this workflow can do itself.
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd sidecar
+          npm ci
+          npm run bundle
+          cd ..
+          mkdir -p src-tauri/resources/sidecar/dist
+          cp sidecar/dist/*.cjs src-tauri/resources/sidecar/dist/
+
+          # The embedded `node` must match the Mac architecture this matrix leg is
+          # building for (matrix.args' --target), not the CI runner's own arch:
+          # macos-latest runners are arm64, but the x86_64-apple-darwin leg builds
+          # for Intel Macs, where an arm64 node binary simply can't run.
+          case "${{ matrix.args }}" in
+            *aarch64*) NODE_ARCH=arm64 ;;
+            *x86_64*) NODE_ARCH=x64 ;;
+          esac
+          NODE_VERSION=$(node --version | sed 's/^v//')
+          curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz
+          tar -xzf /tmp/node.tar.gz -C /tmp
+          cp "/tmp/node-v${NODE_VERSION}-darwin-${NODE_ARCH}/bin/node" src-tauri/resources/sidecar/node
+          chmod +x src-tauri/resources/sidecar/node
+
+      - name: Stage bundled sidecar (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd sidecar
+          npm ci
+          npm run bundle
+          cd ..
+          mkdir -p src-tauri/resources/sidecar/dist
+          cp sidecar/dist/*.cjs src-tauri/resources/sidecar/dist/
+
+          # ubuntu-22.04 has no cross-arch matrix split (unlike macOS) — it only
+          # ever builds for its own runner's native x64, so the runner's own node
+          # is always the right architecture.
+          cp "$(command -v node)" src-tauri/resources/sidecar/node
+          chmod +x src-tauri/resources/sidecar/node
+
+      - name: Stage bundled sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd sidecar
+          npm ci
+          npm run bundle
+          cd ..
+          mkdir -p src-tauri/resources/sidecar/dist
+          cp sidecar/dist/*.cjs src-tauri/resources/sidecar/dist/
+
+          # windows-latest, like ubuntu-22.04, has no cross-arch matrix split —
+          # the runner's own node.exe is always the right architecture. tauri.
+          # windows.conf.json maps this to "sidecar/node.exe" (not "sidecar/node",
+          # the macOS/Linux name) via a platform-specific bundle.resources override.
+          cp "$(command -v node)" src-tauri/resources/sidecar/node.exe
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -77,6 +153,17 @@ jobs:
           # flow polls github.com/login/device directly). Same "never wired into release.yml"
           # gap as the two vars above; also not a secret, no client_secret needed for this flow.
           GITHUB_DEVICE_CLIENT_ID: Ov23liHl2gkZau28nsAu
+          # R2 — Feature #28 auto-update signing. The secret's value is the VERBATIM
+          # CONTENTS of src-tauri/.tauri-keys (`cat .tauri-keys | pbcopy`) — that file is
+          # ALREADY a base64 blob. Do NOT run it through base64 again: the CLI applies
+          # exactly one decode (helpers/updater_signature.rs decode_key), so a
+          # double-encoded value fails with the misleading error "incorrect updater
+          # private key password: Missing encoded key in secret key" — which points at
+          # the password, not the real cause. Never commit the key itself.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # If a password was used when generating the keypair, provide it here as a secret.
+          # The current keypair has no password — leave this unset or empty.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'SkillsHome Desktop ${{ github.ref_name }}'
@@ -102,6 +189,10 @@ jobs:
             certificate) is a planned fast-follow — see the README.
 
             Choose the download for your platform below.
-          releaseDraft: false
+          # Draft while the updater rollout is being validated (#28). A draft is not
+          # served by `releases/latest/download/...`, which is the updater endpoint —
+          # so nothing reaches existing installs until a human promotes the release.
+          # Inspect the attached latest.json first, then publish to go live.
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

@@ -3,6 +3,7 @@ mod extraction;
 mod ingest;
 mod interview;
 mod projectsync;
+mod update;
 
 use auth::backend_client::{BackendClient, IngestStatusResponse, ProfileSummary};
 use auth::state::{SigninState, SigninStatus};
@@ -318,12 +319,22 @@ async fn get_server_fallback_ingest_status(
     }
 }
 
+/// #28 R3 note on scope: the two `start_server_fallback_ingest*` commands above are
+/// deliberately NOT guarded. They hand a job to the server and return in
+/// milliseconds; the long wait that follows is the frontend polling
+/// `get_server_fallback_ingest_status`, which an `OpGuard` cannot span. That window
+/// is covered by the UI-declared busy flag instead (App.tsx sets it for the whole
+/// progress/review flow). A restart during the poll is also recoverable — the job
+/// keeps running server-side and status can be re-polled after relaunch. The confirm
+/// below is different: it writes to the user's profile, so it is guarded.
 #[tauri::command]
 async fn confirm_server_fallback_ingest(
     state: tauri::State<'_, SigninState>,
+    update_guard: tauri::State<'_, update::UpdateGuard>,
     profile_id: String,
     review_package: serde_json::Value,
 ) -> Result<(), String> {
+    let _op = update_guard.begin_op();
     let token = require_access_token(&state)?;
     BackendClient::new()
         .confirm_ingest(&token, &profile_id, review_package)
@@ -348,16 +359,21 @@ fn byok_env_pair(settings_state: &tauri::State<'_, ExtractionSettingsState>) -> 
 
 #[tauri::command]
 async fn start_local_extraction_and_stage(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SigninState>,
     settings_state: tauri::State<'_, ExtractionSettingsState>,
+    update_guard: tauri::State<'_, update::UpdateGuard>,
     profile_id: String,
     file_path: String,
 ) -> Result<serde_json::Value, String> {
+    // #28 R3: an update restart must not kill a running extraction.
+    let _op = update_guard.begin_op();
     let token = require_access_token(&state)?;
     let extra_env = byok_env_pair(&settings_state)?;
     let extra_env_refs: Vec<(&str, &str)> = extra_env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
     ingest::sidecar::run_sidecar_command(
+        &app,
         "stage",
         &[&file_path, &profile_id],
         &token,
@@ -370,14 +386,19 @@ async fn start_local_extraction_and_stage(
 
 #[tauri::command]
 async fn confirm_local_extraction(
+    app: tauri::AppHandle,
     state: tauri::State<'_, SigninState>,
+    update_guard: tauri::State<'_, update::UpdateGuard>,
     profile_id: String,
     confirmed_items: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    // #28 R3: a confirm is a write to the user's profile — never restart mid-flight.
+    let _op = update_guard.begin_op();
     let token = require_access_token(&state)?;
     let payload = serde_json::to_string(&confirmed_items).map_err(|e| e.to_string())?;
 
     ingest::sidecar::run_sidecar_command(
+        &app,
         "confirm",
         &[&profile_id],
         &token,
@@ -388,12 +409,54 @@ async fn confirm_local_extraction(
     .await
 }
 
+// ── Desktop auto-update (Feature #28) ────────────────────────────────
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<update::UpdateInfo, String> {
+    update::check_for_updates(&app).await
+}
+
+#[tauri::command]
+async fn apply_update(
+    app: tauri::AppHandle,
+    update_guard: tauri::State<'_, update::UpdateGuard>,
+) -> Result<update::ApplyOutcome, String> {
+    update::apply_update(&app, &update_guard).await
+}
+
+/// R3: lets the webview declare screen-level work the backend can't see — an
+/// extraction flow in progress, or an unsaved review-and-confirm screen. This
+/// SUPPLEMENTS the RAII guards on long-running commands; it never replaces them,
+/// so a frontend bug (or a compromised webview) clearing this flag cannot unblock
+/// a restart while real work is in flight.
+#[tauri::command]
+fn set_update_ui_busy(update_guard: tauri::State<'_, update::UpdateGuard>, busy: bool) {
+    update_guard.set_ui_busy(busy);
+}
+
+#[tauri::command]
+fn update_guard_status(
+    update_guard: tauri::State<'_, update::UpdateGuard>,
+) -> update::UpdateGuardStatus {
+    update_guard.status()
+}
+
+// `generate_context!()` embeds a fixed-name Info.plist symbol (`_EMBED_INFO_PLIST` on
+// macOS) at the call site, not scoped per invocation. update.rs's manifest_tests needs
+// its own second `generate_context!()` call (against a test fixture config) to get a
+// real, plugin-backed `Updater` — unconditionally compiling this one too would collide
+// with it at link time in `cargo test`. Real behavior is untouched: `run()` is only
+// ever called from `main.rs`'s bin target, which is never part of a `cargo test --lib`
+// build.
+#[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SigninState::default())
         .manage(ExtractionSettingsState::default())
+        .manage(update::UpdateGuard::default())
         .setup(|app| {
             auth::silent_refresh::spawn(app.handle().clone());
 
@@ -430,6 +493,10 @@ pub fn run() {
             confirm_server_fallback_ingest,
             start_local_extraction_and_stage,
             confirm_local_extraction,
+            check_for_updates,
+            apply_update,
+            set_update_ui_busy,
+            update_guard_status,
             projectsync::pick_project_folder,
             projectsync::list_connected_projects,
             projectsync::connect_local_project,
@@ -443,3 +510,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+pub fn run() {}
