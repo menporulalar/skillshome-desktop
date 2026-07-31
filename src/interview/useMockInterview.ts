@@ -4,6 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 export interface RoleTemplateSummary {
   id: string;
   name: string;
+  // Role templates are unique on (name, level), so the level is what
+  // distinguishes two same-named rows. Null against a backend without it.
+  level: string | null;
 }
 
 export interface ClientQuestion {

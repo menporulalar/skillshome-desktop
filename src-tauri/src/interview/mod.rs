@@ -28,6 +28,12 @@ fn require_access_token(state: &tauri::State<'_, SigninState>) -> Result<String,
 pub struct RoleTemplateSummary {
     pub id: String,
     pub name: String,
+    /// RoleTemplate is unique on `(name, level)`, not on name — "AI Engineer"
+    /// exists at several levels — so without this the picker shows rows that
+    /// are indistinguishable and the choice between them is a coin flip.
+    /// Optional so a desktop build running against a backend that predates the
+    /// field degrades to a name-only list instead of failing the whole picker.
+    pub level: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
