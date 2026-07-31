@@ -55,12 +55,13 @@ pub struct ApplyOutcome {
 
 #[derive(Default)]
 struct GuardInner {
-    /// Long-running Rust commands (sidecar extraction runs, project scans) hold an
-    /// `OpGuard` for their whole duration. Counted, not boolean, so concurrent
-    /// operations can't clear each other's protection on completion.
+    /// Long-running Rust commands (sidecar extraction runs, project scans, interview
+    /// turns) hold an `OpGuard` for their whole duration. Counted, not boolean, so
+    /// concurrent operations can't clear each other's protection on completion.
     active_ops: AtomicUsize,
     /// Screen-level state only the webview knows: an extraction flow in progress,
-    /// or an unsaved review-and-confirm screen (both named explicitly in the PRD).
+    /// an unsaved review-and-confirm screen (both named explicitly in the PRD), or
+    /// an open mock interview session.
     /// This one IS frontend-declared — no Rust-side signal exists for "the user is
     /// looking at an unconfirmed review package" — so it supplements, never
     /// replaces, `active_ops`.
@@ -95,12 +96,12 @@ impl UpdateGuard {
         let ops = self.0.active_ops.load(Ordering::SeqCst);
         if ops > 0 {
             return Some(format!(
-                "{ops} background operation{} still running (extraction or project scan)",
+                "{ops} background operation{} still running (extraction, project scan, or interview turn)",
                 if ops == 1 { " is" } else { "s are" }
             ));
         }
         if self.0.ui_busy.load(Ordering::SeqCst) {
-            return Some("an extraction or review is open and unconfirmed".to_string());
+            return Some("an extraction, review, or mock interview is open and unfinished".to_string());
         }
         None
     }

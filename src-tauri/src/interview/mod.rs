@@ -90,9 +90,14 @@ pub async fn start_mock_interview(
     app: tauri::AppHandle,
     signin: tauri::State<'_, SigninState>,
     settings_state: tauri::State<'_, ExtractionSettingsState>,
+    update_guard: tauri::State<'_, crate::update::UpdateGuard>,
     profile_id: String,
     role_template_id: String,
 ) -> Result<StartInterviewResponse, String> {
+    // #28 R3: creates a session server-side and may spawn the sidecar for local
+    // question generation. A restart between the POST and the response strands a
+    // session the UI never learns the id of.
+    let _op = update_guard.begin_op();
     let token = require_access_token(&signin)?;
     let base = crate::auth::backend_client::default_backend_url();
     let resp = reqwest::Client::new()
@@ -142,9 +147,14 @@ pub async fn start_mock_interview(
 pub async fn submit_interview_turn(
     app: tauri::AppHandle,
     signin: tauri::State<'_, SigninState>,
+    update_guard: tauri::State<'_, crate::update::UpdateGuard>,
     session_id: String,
     answer_text: String,
 ) -> Result<serde_json::Value, String> {
+    // #28 R3: a full sidecar spawn + MCP round-trip that grades and records the
+    // turn server-side. Restarting mid-flight loses the answer the candidate
+    // already submitted.
+    let _op = update_guard.begin_op();
     let token = require_access_token(&signin)?;
     let base = crate::auth::backend_client::default_backend_url();
     sidecar::run_sidecar_command(&app, "interview-turn", &[&session_id, &answer_text], &token, base, None, &[]).await
