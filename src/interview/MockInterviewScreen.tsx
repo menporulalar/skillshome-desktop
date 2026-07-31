@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMockInterview, type RoleTemplateSummary } from "./useMockInterview";
+
+// Lazy so the CodeMirror bundle is fetched only when someone turns on the "Code
+// answer" toggle. Every question in the bank today is prose, so for almost all
+// sessions this never loads at all.
+const CodeAnswerEditor = lazy(() => import("./CodeAnswerEditor"));
 
 interface ProfileSummary {
   id: string;
@@ -39,6 +44,9 @@ export function MockInterviewScreen({ onBack }: Props) {
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplateSummary[]>([]);
   const [roleTemplateId, setRoleTemplateId] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
+  // Sticky across turns: someone answering one question in code is likely to
+  // answer the next one that way too. Reset only when the whole session is.
+  const [codeMode, setCodeMode] = useState(false);
 
   useEffect(() => {
     void invoke<ProfileSummary[]>("list_my_profiles").then((rows) => {
@@ -63,9 +71,26 @@ export function MockInterviewScreen({ onBack }: Props) {
     await submitAnswer(submitted);
   };
 
+  // Deliberately not a Tab handler: Tab must keep moving focus out of a prose
+  // field. Code answers get real indentation from CodeMirror instead.
+  const handleAnswerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      // The submit button is disabled while busy; this path has to re-check it.
+      if (!busy) void handleSubmit();
+    }
+  };
+
+  // Shared by both input modes, so the shortcut can't submit an empty or
+  // in-flight answer from inside the editor's own keymap.
+  const submitFromShortcut = () => {
+    if (!busy) void handleSubmit();
+  };
+
   const handleRestart = () => {
     reset();
     setAnswer("");
+    setCodeMode(false);
   };
 
   return (
@@ -118,16 +143,39 @@ export function MockInterviewScreen({ onBack }: Props) {
             </div>
           ) : (
             <>
-              <textarea
-                value={answer}
-                onChange={(e) => setAnswer(e.currentTarget.value)}
-                rows={6}
-                style={{ width: "100%" }}
-                placeholder="Type your answer…"
-              />
-              <button type="button" onClick={handleSubmit} disabled={busy || !answer.trim()} style={{ marginTop: "0.5em" }}>
-                {busy ? "Submitting…" : "Submit answer"}
-              </button>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4em", fontSize: "0.8em", color: "#6e8b92", marginBottom: "0.4em" }}>
+                <input type="checkbox" checked={codeMode} onChange={(e) => setCodeMode(e.currentTarget.checked)} />
+                Code answer
+              </label>
+
+              {codeMode ? (
+                // The fallback is sized to match the editor so the layout doesn't
+                // jump on first toggle while the chunk loads.
+                <Suspense fallback={<div style={{ height: 220, color: "#6e8b92", fontSize: "0.8em" }}>Loading editor…</div>}>
+                  <CodeAnswerEditor
+                    value={answer}
+                    onChange={setAnswer}
+                    trackName={question.trackName}
+                    onSubmit={submitFromShortcut}
+                  />
+                </Suspense>
+              ) : (
+                <textarea
+                  value={answer}
+                  onChange={(e) => setAnswer(e.currentTarget.value)}
+                  onKeyDown={handleAnswerKeyDown}
+                  rows={8}
+                  style={{ width: "100%" }}
+                  placeholder="Type your answer…"
+                />
+              )}
+
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: "0.5em" }}>
+                <button type="button" onClick={handleSubmit} disabled={busy || !answer.trim()}>
+                  {busy ? "Submitting…" : "Submit answer"}
+                </button>
+                <span style={{ color: "#6e8b92", fontSize: "0.75em" }}>⌘/Ctrl + Enter submits</span>
+              </div>
             </>
           )}
         </div>
