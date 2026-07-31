@@ -46,11 +46,15 @@ function App() {
   // extraction.
   const [forceServerFallback, setForceServerFallback] = useState(false);
 
-  // #28 R3: an extraction in flight, or an unconfirmed review package on screen,
-  // must block an update restart. The backend enforces its own RAII guards around
-  // long-running commands — this declares the flow state only the UI can see.
-  // Called before the early returns below, since hooks can't be conditional.
-  useDeclareUpdateBusy(screen === "progress" || screen === "review");
+  // #28 R3: an extraction in flight, an unconfirmed review package on screen, or a
+  // mock interview session must block an update restart. The backend enforces its
+  // own RAII guards around long-running commands — this declares the flow state only
+  // the UI can see. The interview is declared for the whole screen rather than just
+  // its in_progress phase: the session lives in useMockInterview inside
+  // MockInterviewScreen, and a restart there loses it with nothing resumable
+  // server-side. Called before the early returns below, since hooks can't be
+  // conditional.
+  useDeclareUpdateBusy(screen === "progress" || screen === "review" || screen === "interview");
 
   const isSignedIn = signin.accessToken !== null && signin.status.state === "Success";
 
