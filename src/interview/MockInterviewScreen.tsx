@@ -17,6 +17,16 @@ interface Props {
 }
 
 /**
+ * Role templates are unique on `(name, level)`, so the name alone does not
+ * identify one — "AI Engineer" exists at several levels and renders as a run of
+ * identical-looking rows without the level appended.
+ */
+function roleTemplateLabel({ name, level }: RoleTemplateSummary): string {
+  if (!level) return name;
+  return `${name} — ${level.charAt(0).toUpperCase()}${level.slice(1)}`;
+}
+
+/**
  * ai-interview-agent Module 4 desktop half — the Mock_Interview taking
  * screen. Note (task 4.4): there is no Employer_Interview-starting flow
  * anywhere in this app — `start_mock_interview` always creates a
@@ -116,7 +126,7 @@ export function MockInterviewScreen({ onBack }: Props) {
             Role
             <select value={roleTemplateId ?? ""} onChange={(e) => setRoleTemplateId(e.target.value)} style={{ width: "100%" }}>
               {roleTemplates.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
+                <option key={r.id} value={r.id}>{roleTemplateLabel(r)}</option>
               ))}
             </select>
           </label>
