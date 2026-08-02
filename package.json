@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "brand:check": "npm --prefix brand run check",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

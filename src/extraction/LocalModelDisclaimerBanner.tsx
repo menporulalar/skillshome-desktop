@@ -2,14 +2,17 @@
 // Extraction_Source. Its own component (not inlined into ExtractionSettingsScreen)
 // since task 4.12's future extraction-progress screen will very likely need the same
 // banner wherever Local_Model is active, not just here.
+import { LIGHT_THEME } from "../../brand/theme/tokens";
+import { withAlpha } from "../../brand/theme/color";
+
 export function LocalModelDisclaimerBanner() {
   return (
     <div
       role="status"
       style={{
-        border: "1px solid #c8a200",
-        background: "#fff8e1",
-        color: "#5c4600",
+        border: `1px solid ${withAlpha(LIGHT_THEME.warning, 0.5)}`,
+        background: withAlpha(LIGHT_THEME.warning, 0.1),
+        color: LIGHT_THEME.warning,
         borderRadius: 8,
         padding: "0.6em 1em",
         margin: "1em 0",

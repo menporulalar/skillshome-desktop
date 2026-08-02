@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useExtractionSettings, type ByokProvider, type ExtractionSource } from "./useExtractionSettings";
 import { LocalModelDisclaimerBanner } from "./LocalModelDisclaimerBanner";
+import { LIGHT_THEME } from "../../brand/theme/tokens";
 
 // Client-side mirror of src-tauri/src/extraction/check.rs's `is_loopback_host` — this
 // is UI feedback only. The real gate (Requirement 10.2) is enforced server-side in
@@ -161,7 +162,7 @@ export function ExtractionSettingsScreen({ onBack }: Props) {
           </label>
 
           {endpointHost !== null && !isLoopbackHost(endpointHost) && (
-            <div style={{ color: "#a15c00", margin: "0.5em 0" }}>
+            <div style={{ color: LIGHT_THEME.warning, margin: "0.5em 0" }}>
               <p>
                 <strong>"{endpointHost}" is not a loopback address.</strong> Connecting to a
                 non-local endpoint sends your résumé text there directly.
