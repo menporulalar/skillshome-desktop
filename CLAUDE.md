@@ -13,6 +13,16 @@ over MCP + REST — never re-implement server-side logic here, call it.
 | IPC surface | `src-tauri/capabilities/default.json` | every new Tauri command's permission must be added here |
 | Release | `.github/workflows/release.yml` | tag `v*` → builds macOS arm64/x86_64, Windows, Linux |
 
+## Brand colors
+
+`brand/` is a submodule (shared with skillshome-app and skillshome-marketing) and
+`brand/theme/tokens.ts` is the only place a brand hex is written. `src/App.css` imports the
+generated `brand/theme/tokens.css` for `var(--brand-*)`; TSX imports `LIGHT_THEME` /
+`DARK_THEME` from `../../brand/theme/tokens` and `withAlpha` from `../../brand/theme/color`.
+Never re-type a hex. The frontend build now fails without the submodule, so `release.yml`
+checks out `brand` explicitly; `npm run brand:check` verifies the submodule's generated
+outputs still match its tokens.
+
 ## Security
 
 **Token storage** — access token lives in-memory only (`SigninState` mutex in Rust). The

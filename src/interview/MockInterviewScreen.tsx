@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMockInterview, type RoleTemplateSummary } from "./useMockInterview";
+import { LIGHT_THEME } from "../../brand/theme/tokens";
 
 // Lazy so the CodeMirror bundle is fetched only when someone turns on the "Code
 // answer" toggle. Every question in the bank today is prose, so for almost all
@@ -139,7 +140,7 @@ export function MockInterviewScreen({ onBack }: Props) {
 
       {phase === "in_progress" && question && (
         <div style={{ textAlign: "left", maxWidth: 480, margin: "0 auto" }}>
-          {roleName && <p style={{ color: "#6e8b92", fontSize: "0.85em" }}>{roleName} — {question.trackName}</p>}
+          {roleName && <p style={{ color: LIGHT_THEME.ink3, fontSize: "0.85em" }}>{roleName} — {question.trackName}</p>}
           {lastFeedback && <p style={{ fontStyle: "italic" }}>{lastFeedback}</p>}
           <p style={{ fontWeight: 600 }}>{question.text}</p>
 
@@ -153,7 +154,7 @@ export function MockInterviewScreen({ onBack }: Props) {
             </div>
           ) : (
             <>
-              <label style={{ display: "flex", alignItems: "center", gap: "0.4em", fontSize: "0.8em", color: "#6e8b92", marginBottom: "0.4em" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4em", fontSize: "0.8em", color: LIGHT_THEME.ink3, marginBottom: "0.4em" }}>
                 <input type="checkbox" checked={codeMode} onChange={(e) => setCodeMode(e.currentTarget.checked)} />
                 Code answer
               </label>
@@ -161,7 +162,7 @@ export function MockInterviewScreen({ onBack }: Props) {
               {codeMode ? (
                 // The fallback is sized to match the editor so the layout doesn't
                 // jump on first toggle while the chunk loads.
-                <Suspense fallback={<div style={{ height: 220, color: "#6e8b92", fontSize: "0.8em" }}>Loading editor…</div>}>
+                <Suspense fallback={<div style={{ height: 220, color: LIGHT_THEME.ink3, fontSize: "0.8em" }}>Loading editor…</div>}>
                   <CodeAnswerEditor
                     value={answer}
                     onChange={setAnswer}
@@ -184,7 +185,7 @@ export function MockInterviewScreen({ onBack }: Props) {
                 <button type="button" onClick={handleSubmit} disabled={busy || !answer.trim()}>
                   {busy ? "Submitting…" : "Submit answer"}
                 </button>
-                <span style={{ color: "#6e8b92", fontSize: "0.75em" }}>⌘/Ctrl + Enter submits</span>
+                <span style={{ color: LIGHT_THEME.ink3, fontSize: "0.75em" }}>⌘/Ctrl + Enter submits</span>
               </div>
             </>
           )}
@@ -196,9 +197,9 @@ export function MockInterviewScreen({ onBack }: Props) {
           <p style={{ fontSize: "1.5em", fontWeight: 700 }}>
             {report.overallScore != null ? `${report.overallScore}%` : "Not scored"}
           </p>
-          <p style={{ color: "#6e8b92" }}>{report.turnCount} turn(s) answered</p>
+          <p style={{ color: LIGHT_THEME.ink3 }}>{report.turnCount} turn(s) answered</p>
           {(report.flags.distressFlag || report.flags.gamingFlag) && (
-            <p style={{ color: "#a15c00" }}>
+            <p style={{ color: LIGHT_THEME.warning }}>
               {report.flags.distressFlag && "A pause was offered during this session. "}
               {report.flags.gamingFlag && "Some answers were flagged for review."}
             </p>
@@ -207,7 +208,7 @@ export function MockInterviewScreen({ onBack }: Props) {
             {report.perTrack.map((t) => (
               <div key={t.skillName} className="row" style={{ justifyContent: "space-between" }}>
                 <span>{t.skillName}</span>
-                <span style={{ color: "#6e8b92" }}>
+                <span style={{ color: LIGHT_THEME.ink3 }}>
                   {t.averageScore != null ? `${Math.round(t.averageScore)}%` : "—"} · {t.turnCount} turn(s)
                 </span>
               </div>
@@ -221,7 +222,7 @@ export function MockInterviewScreen({ onBack }: Props) {
 
       {phase === "error" && (
         <div style={{ textAlign: "left", maxWidth: 480, margin: "0 auto" }}>
-          <p style={{ color: "#b3403f" }}>{error}</p>
+          <p style={{ color: LIGHT_THEME.error }}>{error}</p>
           <button type="button" onClick={handleRestart}>
             Try again
           </button>

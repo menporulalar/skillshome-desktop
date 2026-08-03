@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useProjectSync, type ConnectedProjectView } from "./useProjectSync";
+import { LIGHT_THEME } from "../../brand/theme/tokens";
 
 interface ProfileSummary {
   id: string;
@@ -94,8 +95,8 @@ export function ConnectedProjectsScreen({ onBack }: Props) {
         </div>
       )}
 
-      {notice && <p style={{ color: "#4a7c52" }}>{notice}</p>}
-      {errorMessage && <p style={{ color: "#b3403f" }}>{errorMessage}</p>}
+      {notice && <p style={{ color: LIGHT_THEME.success }}>{notice}</p>}
+      {errorMessage && <p style={{ color: LIGHT_THEME.error }}>{errorMessage}</p>}
 
       <section>
         <h2>Your projects</h2>

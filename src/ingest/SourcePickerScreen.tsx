@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ExtractionSource } from "../extraction/useExtractionSettings";
 import type { ProfileSummary, IngestStatusResponse, IngestSource } from "./useServerFallbackIngest";
 import { mapDesktopError } from "../errors/mapDesktopError";
+import { LIGHT_THEME } from "../../brand/theme/tokens";
 
 // "Source picker" here means WHAT data to extract from (file / LinkedIn export /
 // GitHub URL) — a different axis from Extraction_Source (WHERE extraction runs,
@@ -112,7 +113,7 @@ export function SourcePickerScreen({ pickFile, listProfiles, activeSource, onBac
       )}
 
       {profileId && block.kind === "blocked" && (
-        <p style={{ color: "#a15c00" }}>
+        <p style={{ color: LIGHT_THEME.warning }}>
           An extraction is already in progress for this profile ({block.label}). Wait for it to finish before starting another.
         </p>
       )}

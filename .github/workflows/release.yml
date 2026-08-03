@@ -42,6 +42,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The frontend imports brand tokens (src/App.css, the LIGHT_THEME imports),
+      # so the build fails outright without this. Only `brand` (public) is needed
+      # — `specs` is docs-only and private, so a blanket `submodules: true` fails
+      # there with no repo access. Rewrite git@github.com: -> https:// ourselves
+      # since we're not using checkout's own submodules option: the runner has no
+      # SSH key, but brand is public so unauthenticated HTTPS works.
+      - name: Check out brand submodule
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init brand
+
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
