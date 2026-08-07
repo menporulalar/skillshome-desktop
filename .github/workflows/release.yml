@@ -176,8 +176,20 @@ jobs:
           # The current keypair has no password — leave this unset or empty.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'SkillsHome Desktop ${{ github.ref_name }}'
+          # Only tagged runs publish. `github.ref_name` is the BRANCH name on a
+          # workflow_dispatch, so the previous unconditional value would have made
+          # tauri-action create a git tag literally named `main` plus a draft
+          # release "SkillsHome Desktop main" — and a tag named `main` alongside the
+          # branch makes every later `git checkout main` / `git push origin main`
+          # ambiguous until someone deletes it.
+          #
+          # Passing an empty tagName makes tauri-action build without creating any
+          # release, which is what a manual run should do: it exercises the whole
+          # build (submodule checkout, sidecar staging, Rust/Tauri bundling) and
+          # leaves nothing behind. Use workflow_dispatch to smoke-test the build;
+          # push a `v*` tag to actually publish.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('SkillsHome Desktop {0}', github.ref_name) || '' }}
           releaseBody: |
             ## SkillsHome Desktop ${{ github.ref_name }}
 
