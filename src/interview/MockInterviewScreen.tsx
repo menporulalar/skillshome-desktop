@@ -104,6 +104,13 @@ export function MockInterviewScreen({ onBack }: Props) {
     setCodeMode(false);
   };
 
+  // The server decides this now: a 'coding_challenge' slot is a question that
+  // must be answered in code, and it is graded against the code rubric whatever
+  // the candidate types. The manual toggle stays for prose questions, whose
+  // answers may still contain a snippet.
+  const isCodeQuestion = question?.kind === "coding_challenge";
+  const showEditor = isCodeQuestion || codeMode;
+
   return (
     <main className="container">
       <h1>Mock Interview</h1>
@@ -154,18 +161,29 @@ export function MockInterviewScreen({ onBack }: Props) {
             </div>
           ) : (
             <>
-              <label style={{ display: "flex", alignItems: "center", gap: "0.4em", fontSize: "0.8em", color: LIGHT_THEME.ink3, marginBottom: "0.4em" }}>
-                <input type="checkbox" checked={codeMode} onChange={(e) => setCodeMode(e.currentTarget.checked)} />
-                Code answer
-              </label>
+              {isCodeQuestion ? (
+                <p style={{ fontSize: "0.8em", color: LIGHT_THEME.ink3, marginBottom: "0.4em" }}>
+                  Code answer{question.language ? ` · ${question.language}` : ""}
+                </p>
+              ) : (
+                // Offered only on a prose question, where the candidate may still
+                // want to include a snippet. On a code question the server has
+                // already said so, and letting them switch it off would just be a
+                // worse field for a question that has to be answered in code.
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4em", fontSize: "0.8em", color: LIGHT_THEME.ink3, marginBottom: "0.4em" }}>
+                  <input type="checkbox" checked={codeMode} onChange={(e) => setCodeMode(e.currentTarget.checked)} />
+                  Code answer
+                </label>
+              )}
 
-              {codeMode ? (
+              {showEditor ? (
                 // The fallback is sized to match the editor so the layout doesn't
                 // jump on first toggle while the chunk loads.
                 <Suspense fallback={<div style={{ height: 220, color: LIGHT_THEME.ink3, fontSize: "0.8em" }}>Loading editor…</div>}>
                   <CodeAnswerEditor
                     value={answer}
                     onChange={setAnswer}
+                    language={question.language}
                     trackName={question.trackName}
                     onSubmit={submitFromShortcut}
                   />

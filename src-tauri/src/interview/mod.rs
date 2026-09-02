@@ -42,6 +42,10 @@ pub struct ClientQuestion {
     #[serde(rename = "trackName")]
     pub track_name: String,
     pub kind: String,
+    /// Sent by the server only when `kind == "coding_challenge"` — the language
+    /// the answer is expected in. Optional so this build still works against a
+    /// backend that predates the code-question contract.
+    pub language: Option<String>,
     pub options: Option<Vec<String>>,
     #[serde(rename = "perTurnSeconds")]
     pub per_turn_seconds: i64,

@@ -12,7 +12,10 @@ export interface RoleTemplateSummary {
 export interface ClientQuestion {
   text: string;
   trackName: string;
+  /** 'bank_question' | 'conversational' | 'coding_challenge' — widened server-side, so kept as a string. */
   kind: string;
+  /** Present only when kind === 'coding_challenge'. Null against a backend without the field. */
+  language?: string | null;
   options?: string[];
   perTurnSeconds: number;
 }

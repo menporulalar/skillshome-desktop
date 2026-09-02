@@ -6,9 +6,14 @@
  * when Local_Model/BYOK_Frontier is active, this replaces the server's
  * already-generated next-question text with one generated locally, using the
  * same track/recent-turn context read back via `interview.session.read`.
- * Bank-question slots are never regenerated — the question bank is fixed,
- * server-side, deterministic (Requirement 6.2's grader-type split), so there
- * is nothing for a local model to usefully generate there.
+ * Only `conversational` slots are regenerated. Bank-question slots are not —
+ * the question bank is fixed, server-side, deterministic (Requirement 6.2's
+ * grader-type split), so there is nothing for a local model to usefully
+ * generate there. `coding_challenge` slots are not either, and that one is
+ * load-bearing rather than merely pointless: the server authors the code task
+ * and grades the answer against its code rubric, so swapping in a locally
+ * generated task would have the candidate answer one question and be graded
+ * against another.
  *
  * Usage: npm run interview-turn -- <sessionId> <answerText> [proposedScore]
  *        SKILLSHOME_ACCESS_TOKEN/SKILLSHOME_BACKEND_URL must be set (same
