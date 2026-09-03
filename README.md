@@ -62,6 +62,20 @@ Requires the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) fo
 toolchain, plus platform-specific system dependencies — Xcode command-line tools on macOS,
 WebView2 on Windows, `libwebkit2gtk`/`libappindicator3` on Linux).
 
+### App icon
+
+Every file under `src-tauri/icons/` is generated — don't edit them by hand. After a brand
+change, with the `brand` submodule checked out, run:
+
+```bash
+npm run brand:icon
+```
+
+This renders `src-tauri/icons/icon.png` (1024×1024) from
+`brand/logo/assets/skillshome-icon.svg` and runs `tauri icon` to produce every platform size
+(desktop PNGs, `.icns`, `.ico`, Windows `Square*`/`StoreLogo`, Android mipmaps, iOS
+`AppIcon-*`). Commit the whole `src-tauri/icons/` diff.
+
 ## Releasing
 
 Releases are built by `.github/workflows/release.yml` (macOS arm64 + x86_64, Windows, Linux) and

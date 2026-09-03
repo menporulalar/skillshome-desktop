@@ -23,6 +23,24 @@ Never re-type a hex. The frontend build now fails without the submodule, so `rel
 checks out `brand` explicitly; `npm run brand:check` verifies the submodule's generated
 outputs still match its tokens.
 
+### App icon (`src-tauri/icons/`)
+
+The whole icon set (dock/taskbar/installer PNGs, `icon.icns`, `icon.ico`, Windows
+`Square*Logo`/`StoreLogo`, Android mipmaps, iOS `AppIcon-*`) is generated — never hand-edit
+a file in `src-tauri/icons/`. It is NOT covered by `brand:check`, so it has drifted from the
+brand before (regenerated 2026-07-27 in the old purple brand, missed by the blue and brass
+token bumps).
+
+To regenerate after a brand change, with the `brand` submodule checked out:
+
+```
+npm run brand:icon
+```
+
+That runs `scripts/generate-app-icon.mjs` (renders the 1024×1024
+`src-tauri/icons/icon.png` from `brand/logo/assets/skillshome-icon.svg` via `sharp`) then
+`tauri icon` to fan it out to every platform size. Commit the full `src-tauri/icons/` diff.
+
 ## Security
 
 **Token storage** — access token lives in-memory only (`SigninState` mutex in Rust). The

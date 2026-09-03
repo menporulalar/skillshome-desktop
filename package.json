@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "brand:check": "npm --prefix brand run check",
+    "brand:icon": "node scripts/generate-app-icon.mjs && tauri icon src-tauri/icons/icon.png",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -25,6 +26,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "sharp": "^0.34.5",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }
