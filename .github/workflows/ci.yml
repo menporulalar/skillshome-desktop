@@ -21,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # `brand` (public) is needed at build time — see skillshome-app's
+      # ci-cd.yml for the same pattern/rationale. `specs` (also a submodule
+      # here) is docs-only and unused at build time, so it's left uninitialized.
+      - run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init brand
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
