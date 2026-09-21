@@ -1,0 +1,36 @@
+name: CI
+
+# Quality-gate-only — type-check on every PR to main. Mirrors the sibling
+# repos' ci-cd.yml pattern (skillshome-app, skillshome-admin,
+# skillshome-skills-platform): a required status check gating merges, added
+# alongside branch protection on main.
+#
+# Deliberately not a full Tauri build (that needs the Rust toolchain per
+# platform and belongs in release.yml, tag-triggered) — this only checks
+# that the frontend TypeScript compiles, via the same `tsc` step the repo's
+# own `npm run build` already runs first.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `brand` (public) is needed at build time — see skillshome-app's
+      # ci-cd.yml for the same pattern/rationale. `specs` (also a submodule
+      # here) is docs-only and unused at build time, so it's left uninitialized.
+      - run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init brand
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc
